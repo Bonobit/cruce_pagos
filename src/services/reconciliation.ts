@@ -22,9 +22,15 @@ function buildMap(
 ): Map<string, { fechaVto: string; tipo: string }> {
   const map = new Map<string, { fechaVto: string; tipo: string }>();
 
+  const normalizedColName = normalize(registroCol);
+
   for (const row of parsed.rows) {
     const reg = normalize(row[registroCol]);
     if (!reg) continue;
+    // Skip the row if the registro value IS the column header itself (header parsed as data row)
+    if (reg === normalizedColName) continue;
+    // Skip values that look like dates (M/DD/YY, MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.)
+    if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
 
     const fechaRaw = fechaVtoCol ? row[fechaVtoCol] : '';
     const fecha = formatDate(fechaRaw || '');
@@ -102,39 +108,95 @@ export function reconcile(
     }
 
     if (tnsRegistroCol) {
-      tnsMap = buildMap(tnsFile, tnsRegistroCol, tnsFechaCol, tipoDefault);
+      // Skip metadata rows after header: letras=1, pagos=3 (account codes, saldo anterior, etc.)
+      const rowsToSkip = modulo === 'letras' ? 1 : modulo === 'pagos' ? 3 : 0;
+      let slicedRows = rowsToSkip > 0 ? tnsFile.rows.slice(rowsToSkip) : tnsFile.rows;
+
+      // For pagos TNS: keep every other row (1 yes, 1 no — real data rows alternate with detail rows)
+      if (modulo === 'pagos') {
+        slicedRows = slicedRows.filter((_, i) => i % 2 === 0);
+      }
+
+      const tnsParsed = { ...tnsFile, rows: slicedRows };
+      tnsMap = buildMap(tnsParsed, tnsRegistroCol, tnsFechaCol, tipoDefault);
     }
   }
 
-  // ---- Build union of all registros ----
-  const allRegistros = new Set<string>([...gestorMap.keys(), ...tnsMap.keys()]);
-
+  // ---- Build rows ----
   const rows: RegistroRow[] = [];
 
-  for (const reg of allRegistros) {
-    const inGestor = gestorMap.has(reg);
-    const inTns = tnsMap.has(reg);
+  if (modulo === 'letras') {
+    // Substring matching: gestorKey is a substring of tnsKey
+    // e.g. TNS: "NDLTSALINI1EHES37-1"  GESTOR: "SALINI1EHES37"
+    const matchedGestorKeys = new Set<string>();
 
-    // Prefer GESTOR data for tipo and fechaVto; fallback to TNS
-    const gestorData = gestorMap.get(reg);
-    const tnsData = tnsMap.get(reg);
+    // 1. Iterate TNS keys first (preserves TNS file order)
+    for (const tnsKey of tnsMap.keys()) {
+      const tnsData = tnsMap.get(tnsKey)!;
 
-    const tipo = gestorData?.tipo ?? tnsData?.tipo ?? tipoDefault;
-    const fechaVto = gestorData?.fechaVto || tnsData?.fechaVto || '';
+      // Find a GESTOR key that is contained within this TNS key
+      let matchedGestorKey: string | undefined;
+      for (const gestorKey of gestorMap.keys()) {
+        if (tnsKey.includes(gestorKey)) {
+          matchedGestorKey = gestorKey;
+          break;
+        }
+      }
 
-    const estado: RegistroRow['estadoConciliacion'] =
-      inGestor && inTns ? 'Ambos' : inGestor ? 'Solo Gestor' : 'Solo TNS';
+      const inGestor = !!matchedGestorKey;
+      if (inGestor) matchedGestorKeys.add(matchedGestorKey!);
 
-    rows.push({ registro: reg, tipo, fechaVto, gestor: inGestor, tns: inTns, estadoConciliacion: estado });
+      const gestorData = matchedGestorKey ? gestorMap.get(matchedGestorKey) : undefined;
+      const tipo = gestorData?.tipo ?? tnsData.tipo;
+      const fechaVto = gestorData?.fechaVto || tnsData.fechaVto || '';
+      const estado: RegistroRow['estadoConciliacion'] = inGestor ? 'Ambos' : 'Solo TNS';
+
+      rows.push({ registro: tnsKey, tipo, fechaVto, gestor: inGestor, tns: true, estadoConciliacion: estado, modulo });
+    }
+
+    // 2. GESTOR-only rows (those not matched to any TNS)
+    for (const [gestorKey, gestorData] of gestorMap.entries()) {
+      if (!matchedGestorKeys.has(gestorKey)) {
+        rows.push({ registro: gestorKey, tipo: gestorData.tipo, fechaVto: gestorData.fechaVto, gestor: true, tns: false, estadoConciliacion: 'Solo Gestor', modulo });
+      }
+    }
+
+  } else {
+    // Substring matching for pagos: gestorKey (RECIBO) is a substring of tnsKey (COMPROBANTE/TIPO DCTO value)
+    const matchedGestorKeysPagos = new Set<string>();
+
+    // 1. TNS keys first
+    for (const tnsKey of tnsMap.keys()) {
+      const tnsData = tnsMap.get(tnsKey)!;
+
+      let matchedGestorKey: string | undefined;
+      for (const gestorKey of gestorMap.keys()) {
+        if (tnsKey.includes(gestorKey)) {
+          matchedGestorKey = gestorKey;
+          break;
+        }
+      }
+
+      const inGestor = !!matchedGestorKey;
+      if (inGestor) matchedGestorKeysPagos.add(matchedGestorKey!);
+
+      const gestorData = matchedGestorKey ? gestorMap.get(matchedGestorKey) : undefined;
+      const tipo = gestorData?.tipo ?? tnsData.tipo;
+      const fechaVto = gestorData?.fechaVto || tnsData.fechaVto || '';
+      const estado: RegistroRow['estadoConciliacion'] = inGestor ? 'Ambos' : 'Solo TNS';
+
+      rows.push({ registro: tnsKey, tipo, fechaVto, gestor: inGestor, tns: true, estadoConciliacion: estado, modulo });
+    }
+
+    // 2. GESTOR-only rows
+    for (const [gestorKey, gestorData] of gestorMap.entries()) {
+      if (!matchedGestorKeysPagos.has(gestorKey)) {
+        rows.push({ registro: gestorKey, tipo: gestorData.tipo, fechaVto: gestorData.fechaVto, gestor: true, tns: false, estadoConciliacion: 'Solo Gestor', modulo });
+      }
+    }
   }
 
-  // Sort: Ambos first, then Solo Gestor, then Solo TNS; then alphabetically
-  const order: Record<string, number> = { Ambos: 0, 'Solo Gestor': 1, 'Solo TNS': 2 };
-  rows.sort((a, b) => {
-    const eo = order[a.estadoConciliacion] - order[b.estadoConciliacion];
-    if (eo !== 0) return eo;
-    return a.registro.localeCompare(b.registro);
-  });
+  // No sorting — rows appear in the order found in the source files
 
   return {
     rows,

@@ -7,6 +7,7 @@ export interface RegistroRow {
   gestor: boolean;
   tns: boolean;
   estadoConciliacion: 'Solo Gestor' | 'Solo TNS' | 'Ambos';
+  modulo: Modulo;
 }
 
 export interface ParsedFile {
@@ -24,11 +25,11 @@ export type Store = Record<Modulo, StoreEntry>;
 // Column aliases for auto-detection (uppercase, no accents)
 export const COLUMN_ALIASES = {
   pagos: {
-    registro: ['RECIBO', 'REGISTRO', 'N°', 'NUMERO', 'NRO', 'NRO.', 'NO.', 'ID', 'COMPROBANTE'],
+    registro: ['RECIBO', 'REGISTRO', 'N°', 'NUMERO', 'NRO', 'NRO.', 'NO.', 'ID', 'COMPROBANTE', 'COMPROBANTE/ TIPO DCTO', 'COMPROBANTE/TIPO DCTO'],
     fechaVto: ['FECHA', 'FECHA DE PAGO', 'FECHA VTO', 'FECHA VENCIMIENTO', 'FEC VTO', 'VENCIMIENTO'],
   },
   letras: {
-    registro: ['NUMERO', 'NÚMERO', 'N°', 'NRO', 'REGISTRO', 'LETRA', 'ID', 'COMPROBANTE'],
-    fechaVto: ['FECHA VENCIMIENTO', 'FECHA VTO', 'FEC VTO', 'VENCIMIENTO', 'FECHA', 'FECHA DE VENCIMIENTO'],
+    registro: ['NUMERO', 'NÚMERO', 'N°', 'NRO', 'DOCUMENTO', 'REGISTRO', 'LETRA', 'ID', 'COMPROBANTE'],
+    fechaVto: ['FECHA VENCIMIENTO', 'FECHA VTO', 'FECHA VCTO.', 'FECHA VCTO', 'FEC VTO', 'VENCIMIENTO', 'FECHA', 'FECHA DE VENCIMIENTO'],
   },
 };

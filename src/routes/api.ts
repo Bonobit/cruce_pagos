@@ -84,11 +84,20 @@ router.post('/upload/tns', upload.single('file'), (req: Request, res: Response) 
   try {
     const parsed = parseFile(req.file.buffer, req.file.originalname);
     getStore(modulo).tns = parsed;
+    const rawCount = parsed.rows.length;
+    // Compute effective count matching the filters applied in reconciliation
+    let effectiveCount = rawCount;
+    if (modulo === 'letras') {
+      effectiveCount = Math.max(0, rawCount - 1);          // skip first metadata row
+    } else if (modulo === 'pagos') {
+      const afterSkip = Math.max(0, rawCount - 3);         // skip 3 metadata rows
+      effectiveCount = Math.floor(afterSkip / 2);           // keep every other row
+    }
     res.json({
       ok: true,
       modulo,
       source: 'tns',
-      rows: parsed.rows.length,
+      rows: effectiveCount,
       columns: parsed.columns,
     });
   } catch (err) {
@@ -125,6 +134,50 @@ router.get('/cruce', (req: Request, res: Response) => {
   }
   const result = reconcile(modulo, s.gestor, s.tns);
   res.json(result);
+});
+
+// ─── Debug: view raw columns from uploaded files ──────────────────────────────
+router.get('/debug/columns', (req: Request, res: Response) => {
+  res.json({
+    letras: {
+      gestor: store.letras.gestor?.columns ?? null,
+      tns: store.letras.tns?.columns ?? null,
+    },
+    pagos: {
+      gestor: store.pagos.gestor?.columns ?? null,
+      tns: store.pagos.tns?.columns ?? null,
+    },
+  });
+});
+
+// ─── Cruce ALL (Letras + Pagos combined) ─────────────────────────────────────
+router.get('/cruce/all', (req: Request, res: Response) => {
+  const letrasStore = getStore('letras');
+  const pagosStore = getStore('pagos');
+
+  const hasLetras = letrasStore.gestor || letrasStore.tns;
+  const hasPagos = pagosStore.gestor || pagosStore.tns;
+
+  if (!hasLetras && !hasPagos) {
+    res.status(400).json({ error: 'Debe cargar al menos un archivo en algún módulo.' });
+    return;
+  }
+
+  const warnings: string[] = [];
+  let combinedRows: import('../types').RegistroRow[] = [];
+
+  if (hasLetras) {
+    const r = reconcile('letras', letrasStore.gestor, letrasStore.tns);
+    warnings.push(...r.warnings);
+    combinedRows = combinedRows.concat(r.rows);
+  }
+  if (hasPagos) {
+    const r = reconcile('pagos', pagosStore.gestor, pagosStore.tns);
+    warnings.push(...r.warnings);
+    combinedRows = combinedRows.concat(r.rows);
+  }
+
+  res.json({ rows: combinedRows, warnings });
 });
 
 // ─── Cruce Excel Download ──────────────────────────────────────────────────────

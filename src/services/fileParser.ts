@@ -6,7 +6,7 @@ import { ParsedFile } from '../types';
  */
 export function normalize(val: string | number | null | undefined): string {
   if (val === null || val === undefined) return '';
-  return String(val).trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return String(val).trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 }
 
 /**
@@ -21,8 +21,8 @@ export function parseFile(buffer: Buffer, originalName: string): ParsedFile {
   let bestRows: Record<string, string>[] = [];
   let bestColumns: string[] = [];
 
-  // Try header rows 0-5 to find the best parse
-  for (let headerRow = 0; headerRow <= 5; headerRow++) {
+  // Try header rows 0-10 to find the best parse (some files have many metadata rows before the real header)
+  for (let headerRow = 0; headerRow <= 10; headerRow++) {
     try {
       const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
         defval: '',
@@ -39,7 +39,21 @@ export function parseFile(buffer: Buffer, originalName: string): ParsedFile {
         (c) => !c.startsWith('__EMPTY') && c.trim() !== ''
       );
 
-      if (validCols.length > bestColumns.length) {
+      const isDataLike = (col: string): boolean => {
+        const c = col.trim();
+        // Looks like a date: M/D/YY, MM/DD/YYYY, YYYY-MM-DD, etc.
+        if (/^\d{1,4}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(c)) return true;
+        // Looks like a number or currency: 1318000.00, 1,318,000.00, .00
+        if (/^[\d\.,]+$/.test(c)) return true;
+        // Single letter or very short non-alpha string
+        if (c.length <= 1) return true;
+        return false;
+      };
+      const scoreColumns = (cols: string[]): number =>
+        cols.reduce((s, c) => s + (isDataLike(c) ? 0 : 1), 0);
+
+      const score = scoreColumns(validCols);
+      if (score > scoreColumns(bestColumns)) {
         bestColumns = validCols;
         bestRows = raw.map((r) => {
           const out: Record<string, string> = {};
