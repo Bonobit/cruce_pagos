@@ -1,15 +1,16 @@
 import ExcelJS from 'exceljs';
-import { RegistroRow, Modulo } from '../types';
+import { RegistroRow } from '../types';
 
-export async function generateExcel(rows: RegistroRow[], modulo: Modulo): Promise<Buffer> {
+export async function generateExcel(rows: RegistroRow[]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Conciliación App';
   wb.created = new Date();
 
-  const ws = wb.addWorksheet(`Cruce ${modulo.charAt(0).toUpperCase() + modulo.slice(1)}`);
+  const ws = wb.addWorksheet('Cruce Completo');
 
   // ---- Define columns ----
   ws.columns = [
+    { header: 'Módulo', key: 'modulo', width: 10 },
     { header: 'Registro', key: 'registro', width: 28 },
     { header: 'Tipo', key: 'tipo', width: 12 },
     { header: 'Fecha Vto', key: 'fechaVto', width: 16 },

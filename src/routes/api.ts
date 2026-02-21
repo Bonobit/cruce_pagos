@@ -182,20 +182,24 @@ router.get('/cruce/all', (req: Request, res: Response) => {
 
 // ─── Cruce Excel Download ──────────────────────────────────────────────────────
 router.get('/cruce/excel', async (req: Request, res: Response) => {
-  const modulo = getModulo(req);
-  if (!modulo) {
-    res.status(400).json({ error: 'Parámetro modulo requerido' });
-    return;
-  }
-  const s = getStore(modulo);
-  if (!s.gestor && !s.tns) {
+  const letrasStore = getStore('letras');
+  const pagosStore = getStore('pagos');
+
+  const hasLetras = letrasStore.gestor || letrasStore.tns;
+  const hasPagos = pagosStore.gestor || pagosStore.tns;
+
+  if (!hasLetras && !hasPagos) {
     res.status(400).json({ error: 'Debe cargar al menos un archivo antes de exportar.' });
     return;
   }
+
   try {
-    const result = reconcile(modulo, s.gestor, s.tns);
-    const buf = await generateExcel(result.rows, modulo);
-    const filename = `cruce_${modulo}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    let combinedRows: import('../types').RegistroRow[] = [];
+    if (hasLetras) combinedRows = combinedRows.concat(reconcile('letras', letrasStore.gestor, letrasStore.tns).rows);
+    if (hasPagos) combinedRows = combinedRows.concat(reconcile('pagos', pagosStore.gestor, pagosStore.tns).rows);
+
+    const buf = await generateExcel(combinedRows);
+    const filename = `cruce_completo_${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buf);
