@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import cors from 'cors';
 import apiRouter from './routes/api';
+import { logger } from './utils/logger';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,8 +22,7 @@ app.get('*', (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 Conciliación App corriendo en http://localhost:${PORT}`);
-  console.log(`   Módulos disponibles: pagos | letras\n`);
+  logger.info({ port: PORT }, 'Conciliación App iniciada');
 });
 
 export default app;
