@@ -1,10 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { Modulo, Store, StoreEntry } from '../types';
 import { parseFile } from '../services/fileParser';
 import { reconcile } from '../services/reconciliation';
 import { generateExcel } from '../services/excelExport';
 import { logger } from '../utils/logger';
+import { AppError } from '../utils/errors';
 
 const router = Router();
 
@@ -35,6 +36,29 @@ const upload = multer({
   },
 });
 
+export const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  upload.single('file')(req, res, (err: any) => {
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({ error: { code: 'ERR_FILE_TOO_LARGE', message: 'El archivo supera el límite de 20 MB permitido.' } });
+      return;
+    } else if (err) {
+      res.status(400).json({ error: { code: 'ERR_FILE_CORRUPT', message: `Error en la subida: ${err.message}` } });
+      return;
+    }
+    next();
+  });
+};
+
+const handleError = (err: any, res: Response, source?: string) => {
+  if (err instanceof AppError) {
+    if (source) logger.warn({ source, code: err.code }, err.message);
+    res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+  } else {
+    if (source) logger.error({ source, err }, 'Error inesperado');
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: `Error inesperado: ${(err as Error).message}` } });
+  }
+};
+
 function getModulo(req: Request): Modulo | null {
   const m = req.query.modulo as string;
   if (m === 'pagos' || m === 'letras') return m;
@@ -46,14 +70,14 @@ function getStore(modulo: Modulo): StoreEntry {
 }
 
 // ─── Upload GESTOR ────────────────────────────────────────────────────────────
-router.post('/upload/gestor', upload.single('file'), (req: Request, res: Response) => {
+router.post('/upload/gestor', uploadMiddleware, (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
-    res.status(400).json({ error: 'Parámetro modulo requerido: pagos | letras' });
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido: pagos | letras' } });
     return;
   }
   if (!req.file) {
-    res.status(400).json({ error: 'Archivo requerido' });
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Archivo requerido' } });
     return;
   }
   try {
@@ -68,20 +92,19 @@ router.post('/upload/gestor', upload.single('file'), (req: Request, res: Respons
       columns: parsed.columns,
     });
   } catch (err) {
-    logger.error({ err, modulo, source: 'gestor' }, 'Error al procesar archivo');
-    res.status(500).json({ error: `Error al procesar archivo: ${(err as Error).message}` });
+    handleError(err, res, 'gestor');
   }
 });
 
 // ─── Upload TNS ───────────────────────────────────────────────────────────────
-router.post('/upload/tns', upload.single('file'), (req: Request, res: Response) => {
+router.post('/upload/tns', uploadMiddleware, (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
-    res.status(400).json({ error: 'Parámetro modulo requerido: pagos | letras' });
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido: pagos | letras' } });
     return;
   }
   if (!req.file) {
-    res.status(400).json({ error: 'Archivo requerido' });
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Archivo requerido' } });
     return;
   }
   try {
@@ -105,8 +128,7 @@ router.post('/upload/tns', upload.single('file'), (req: Request, res: Response) 
       columns: parsed.columns,
     });
   } catch (err) {
-    logger.error({ err, modulo, source: 'tns' }, 'Error al procesar archivo');
-    res.status(500).json({ error: `Error al procesar archivo: ${(err as Error).message}` });
+    handleError(err, res, 'tns');
   }
 });
 
@@ -114,7 +136,7 @@ router.post('/upload/tns', upload.single('file'), (req: Request, res: Response) 
 router.get('/status', (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
-    res.status(400).json({ error: 'Parámetro modulo requerido' });
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido' } });
     return;
   }
   const s = getStore(modulo);
@@ -129,17 +151,25 @@ router.get('/status', (req: Request, res: Response) => {
 router.get('/cruce', (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
-    res.status(400).json({ error: 'Parámetro modulo requerido' });
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido' } });
     return;
   }
   const s = getStore(modulo);
   if (!s.gestor && !s.tns) {
-    res.status(400).json({ error: 'Debe cargar al menos un archivo antes de generar el cruce.' });
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Debe cargar los archivos antes de generar el cruce.' } });
     return;
   }
-  const result = reconcile(modulo, s.gestor, s.tns);
-  logger.info({ modulo, totalRows: result.rows.length, warnings: result.warnings.length }, 'Cruce ejecutado');
-  res.json(result);
+  if (!s.gestor || !s.tns) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Falta cargar uno de los archivos para el módulo seleccionado (GESTOR o TNS).' } });
+    return;
+  }
+  try {
+    const result = reconcile(modulo, s.gestor, s.tns);
+    logger.info({ modulo, totalRows: result.rows.length, warnings: result.warnings.length }, 'Cruce ejecutado');
+    res.json(result);
+  } catch (err) {
+    handleError(err, res);
+  }
 });
 
 // ─── Debug: view raw columns from uploaded files ──────────────────────────────
@@ -161,49 +191,74 @@ router.get('/cruce/all', (_req: Request, res: Response) => {
   const letrasStore = getStore('letras');
   const pagosStore = getStore('pagos');
 
-  const hasLetras = letrasStore.gestor || letrasStore.tns;
-  const hasPagos = pagosStore.gestor || pagosStore.tns;
+  const hasLetrasAny = letrasStore.gestor || letrasStore.tns;
+  const hasPagosAny = pagosStore.gestor || pagosStore.tns;
 
-  if (!hasLetras && !hasPagos) {
-    res.status(400).json({ error: 'Debe cargar al menos un archivo en algún módulo.' });
+  if (!hasLetrasAny && !hasPagosAny) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Debe cargar los archivos antes de generar el cruce.' } });
+    return;
+  }
+
+  // Si empezó a cargar un módulo, validar que estén ambos
+  if (hasLetrasAny && (!letrasStore.gestor || !letrasStore.tns)) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Letras (Gestor o TNS).' } });
+    return;
+  }
+
+  if (hasPagosAny && (!pagosStore.gestor || !pagosStore.tns)) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Pagos (Gestor o TNS).' } });
     return;
   }
 
   const warnings: string[] = [];
   let combinedRows: import('../types').RegistroRow[] = [];
 
-  if (hasLetras) {
-    const r = reconcile('letras', letrasStore.gestor, letrasStore.tns);
-    warnings.push(...r.warnings);
-    combinedRows = combinedRows.concat(r.rows);
+  try {
+    if (hasLetrasAny) {
+      const r = reconcile('letras', letrasStore.gestor, letrasStore.tns);
+      warnings.push(...r.warnings);
+      combinedRows = combinedRows.concat(r.rows);
+    }
+    if (hasPagosAny) {
+      const r = reconcile('pagos', pagosStore.gestor, pagosStore.tns);
+      warnings.push(...r.warnings);
+      combinedRows = combinedRows.concat(r.rows);
+    }
+    logger.info({ totalRows: combinedRows.length, warnings: warnings.length }, 'Cruce ALL ejecutado');
+    res.json({ rows: combinedRows, warnings });
+  } catch(err) {
+    handleError(err, res);
   }
-  if (hasPagos) {
-    const r = reconcile('pagos', pagosStore.gestor, pagosStore.tns);
-    warnings.push(...r.warnings);
-    combinedRows = combinedRows.concat(r.rows);
-  }
-
-  logger.info({ totalRows: combinedRows.length, warnings: warnings.length }, 'Cruce ALL ejecutado');
-  res.json({ rows: combinedRows, warnings });
 });
 
 // ─── Cruce Excel Download ──────────────────────────────────────────────────────
-router.get('/cruce/excel', async (_req: Request, res: Response) => {
+router.get('/cruce/excel', async (req: Request, res: Response) => {
+  const modulo = getModulo(req) || 'pagos';
   const letrasStore = getStore('letras');
   const pagosStore = getStore('pagos');
 
-  const hasLetras = letrasStore.gestor || letrasStore.tns;
-  const hasPagos = pagosStore.gestor || pagosStore.tns;
+  const hasLetrasAny = letrasStore.gestor || letrasStore.tns;
+  const hasPagosAny = pagosStore.gestor || pagosStore.tns;
 
-  if (!hasLetras && !hasPagos) {
-    res.status(400).json({ error: 'Debe cargar al menos un archivo antes de exportar.' });
+  if (!hasLetrasAny && !hasPagosAny) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Debe cargar al menos un módulo completo antes de exportar.' } });
+    return;
+  }
+
+  if (hasLetrasAny && (!letrasStore.gestor || !letrasStore.tns)) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Letras.' } });
+    return;
+  }
+
+  if (hasPagosAny && (!pagosStore.gestor || !pagosStore.tns)) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Pagos.' } });
     return;
   }
 
   try {
     let combinedRows: import('../types').RegistroRow[] = [];
-    if (hasLetras) combinedRows = combinedRows.concat(reconcile('letras', letrasStore.gestor, letrasStore.tns).rows);
-    if (hasPagos) combinedRows = combinedRows.concat(reconcile('pagos', pagosStore.gestor, pagosStore.tns).rows);
+    if (hasLetrasAny) combinedRows = combinedRows.concat(reconcile('letras', letrasStore.gestor, letrasStore.tns).rows);
+    if (hasPagosAny) combinedRows = combinedRows.concat(reconcile('pagos', pagosStore.gestor, pagosStore.tns).rows);
 
     const buf = await generateExcel(combinedRows);
     const filename = `cruce_completo_${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -212,8 +267,7 @@ router.get('/cruce/excel', async (_req: Request, res: Response) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buf);
   } catch (err) {
-    logger.error({ err }, 'Error al generar Excel');
-    res.status(500).json({ error: `Error al generar Excel: ${(err as Error).message}` });
+    handleError(err, res);
   }
 });
 
@@ -221,7 +275,7 @@ router.get('/cruce/excel', async (_req: Request, res: Response) => {
 router.delete('/reset', (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
-    res.status(400).json({ error: 'Parámetro modulo requerido' });
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido' } });
     return;
   }
   store[modulo] = { gestor: null, tns: null };

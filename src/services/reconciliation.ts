@@ -1,5 +1,6 @@
 import { Modulo, ParsedFile, RegistroRow, COLUMN_ALIASES } from '../types';
 import { normalize, findColumn, formatDate } from './fileParser';
+import { AppError } from '../utils/errors';
 
 export interface ReconciliationResult {
   rows: RegistroRow[];
@@ -14,25 +15,26 @@ export interface ReconciliationResult {
 
 /**
  * Detects registro and fechaVto columns for a given source file.
- * Falls back to first column for registro if no alias matches.
+ * Throws if no alias matches for the registro (crucial code).
  */
 function detectSourceColumns(
   file: ParsedFile,
   aliases: { registro: string[]; fechaVto: string[] },
   sourceName: string,
   warnings: string[]
-): { registroCol: string | null; fechaCol: string | null } {
-  let registroCol = findColumn(file.columns, aliases.registro);
+): { registroCol: string; fechaCol: string | null } {
+  const registroCol = findColumn(file.columns, aliases.registro);
   const fechaCol = findColumn(file.columns, aliases.fechaVto);
 
   if (!registroCol) {
-    registroCol = file.columns[0] || null;
-    warnings.push(
-      `${sourceName}: No se encontró columna de registro conocida. Se usó "${registroCol}" como clave.`
+    throw new AppError(
+      'ERR_MISSING_COLUMNS',
+      `[${sourceName}] No se encontró ninguna columna de alias conocido para el "registro/clave". Columnas presentes: ${file.columns.join(', ')}`
     );
   }
+  
   if (!fechaCol) {
-    warnings.push(`${sourceName}: No se encontró columna de fecha. La fecha vto quedará vacía.`);
+    warnings.push(`[${sourceName}]: No se encontró columna de fecha. La fecha de vencimiento quedará vacía en caso de no cruzar.`);
   }
 
   return { registroCol, fechaCol };
@@ -54,13 +56,14 @@ function filterTnsRows(
 
 /**
  * Extracts a map of registro -> {fechaVto, tipo} from parsed rows.
- * Duplicate registros: keeps the one with the earliest fechaVto (most proxima).
+ * Throws ERR_DUPLICATES_GESTOR if isGestor is true and there are duplicates with different dates.
  */
 export function buildMap(
   parsed: ParsedFile,
   registroCol: string,
   fechaVtoCol: string | null,
-  tipoDefault: string
+  tipoDefault: string,
+  isGestor: boolean
 ): Map<string, { fechaVto: string; tipo: string }> {
   const map = new Map<string, { fechaVto: string; tipo: string }>();
   const normalizedColName = normalize(registroCol);
@@ -79,8 +82,17 @@ export function buildMap(
     if (!map.has(reg)) {
       map.set(reg, { fechaVto: fecha, tipo: tipoDefault });
     } else {
-      // Keep earliest date (most proxima) among duplicates
       const existing = map.get(reg)!;
+      
+      // Valida regla estricta sobre duplicados en GESTOR
+      if (isGestor && fecha && existing.fechaVto && fecha !== existing.fechaVto) {
+         throw new AppError(
+           'ERR_DUPLICATES_GESTOR', 
+           `Se encontró un registro duplicado en archivo GESTOR con el identificador "${reg}" y distintas fechas de vencimiento (${existing.fechaVto} vs ${fecha}).`
+         );
+      }
+
+      // Keep earliest date (most proxima) among duplicates logically for non-erroring duplicates or TNS
       if (fecha && existing.fechaVto) {
         const d1 = new Date(fechaRaw || '');
         const d2 = new Date(existing.fechaVto);
@@ -164,7 +176,8 @@ export function reconcile(
       gestorFile, aliases, 'GESTOR', warnings
     ));
     if (gestorRegistroCol) {
-      gestorMap = buildMap(gestorFile, gestorRegistroCol, gestorFechaCol, tipoDefault);
+      // isGestor = true -> lanzará error si hay duplicados con distintas fechas
+      gestorMap = buildMap(gestorFile, gestorRegistroCol, gestorFechaCol, tipoDefault, true);
     }
   }
 
@@ -180,7 +193,8 @@ export function reconcile(
     if (tnsRegistroCol) {
       const filteredRows = filterTnsRows(tnsFile.rows, modulo);
       const tnsParsed = { ...tnsFile, rows: filteredRows };
-      tnsMap = buildMap(tnsParsed, tnsRegistroCol, tnsFechaCol, tipoDefault);
+      // isGestor = false
+      tnsMap = buildMap(tnsParsed, tnsRegistroCol, tnsFechaCol, tipoDefault, false);
     }
   }
 

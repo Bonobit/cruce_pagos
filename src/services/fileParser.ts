@@ -1,21 +1,36 @@
 import * as XLSX from 'xlsx';
 import { ParsedFile } from '../types';
+import { AppError } from '../utils/errors';
 
 /**
  * Normalizes a string: trim + uppercase + remove accents
  */
 export function normalize(val: string | number | null | undefined): string {
   if (val === null || val === undefined) return '';
-  return String(val).trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+  return String(val)
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' '); // normalizes multiple spaces
 }
 
 /**
  * Parses an Excel or CSV buffer into rows of key-value pairs.
  * Tries multiple header rows (0, 1, 2, 3, 4, 5) to find the most columns.
  */
-export function parseFile(buffer: Buffer, _originalName: string): ParsedFile {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+export function parseFile(buffer: Buffer, originalName: string): ParsedFile {
+  let workbook: XLSX.WorkBook;
+  try {
+    workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  } catch (err) {
+    throw new AppError('ERR_FILE_CORRUPT', `No se pudo leer el archivo ${originalName}. Formato dañado o inválido.`);
+  }
+
   const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    throw new AppError('ERR_FILE_CORRUPT', `El archivo ${originalName} está vacío (no tiene hojas).`);
+  }
   const sheet = workbook.Sheets[sheetName];
 
   let bestRows: Record<string, string>[] = [];
@@ -49,24 +64,36 @@ export function parseFile(buffer: Buffer, _originalName: string): ParsedFile {
         if (c.length <= 1) return true;
         return false;
       };
+      
       const scoreColumns = (cols: string[]): number =>
         cols.reduce((s, c) => s + (isDataLike(c) ? 0 : 1), 0);
 
       const score = scoreColumns(validCols);
       if (score > scoreColumns(bestColumns)) {
         bestColumns = validCols;
+        
         bestRows = raw.map((r) => {
           const out: Record<string, string> = {};
           for (const col of validCols) {
             const v = r[col];
+            // keep value as is (trim if string), but without accents or weird encodings?
+            // The requirement says "normalizar el valor", but doing it here might lose original case.
+            // We just ensure it's a string. And we do rigorous normalize() later when matching.
             out[col] = v !== undefined && v !== null ? String(v).trim() : '';
           }
           return out;
+        }).filter(r => {
+          // Filtrar filas completamente vacías
+          return Object.values(r).some(val => val !== '');
         });
       }
     } catch {
       // skip
     }
+  }
+
+  if (bestColumns.length === 0) {
+    throw new AppError('ERR_FILE_CORRUPT', `El archivo ${originalName} no contiene columnas válidas detectables reconociendo datos.`);
   }
 
   return { rows: bestRows, columns: bestColumns };
