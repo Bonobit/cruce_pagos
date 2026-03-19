@@ -4,6 +4,7 @@ import { Modulo, Store, StoreEntry } from '../types';
 import { parseFile } from '../services/fileParser';
 import { reconcile } from '../services/reconciliation';
 import { generateExcel } from '../services/excelExport';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -58,6 +59,7 @@ router.post('/upload/gestor', upload.single('file'), (req: Request, res: Respons
   try {
     const parsed = parseFile(req.file.buffer, req.file.originalname);
     getStore(modulo).gestor = parsed;
+    logger.info({ modulo, source: 'gestor', rows: parsed.rows.length }, 'Archivo cargado');
     res.json({
       ok: true,
       modulo,
@@ -66,6 +68,7 @@ router.post('/upload/gestor', upload.single('file'), (req: Request, res: Respons
       columns: parsed.columns,
     });
   } catch (err) {
+    logger.error({ err, modulo, source: 'gestor' }, 'Error al procesar archivo');
     res.status(500).json({ error: `Error al procesar archivo: ${(err as Error).message}` });
   }
 });
@@ -93,6 +96,7 @@ router.post('/upload/tns', upload.single('file'), (req: Request, res: Response) 
       const afterSkip = Math.max(0, rawCount - 3);         // skip 3 metadata rows
       effectiveCount = Math.floor(afterSkip / 2);           // keep every other row
     }
+    logger.info({ modulo, source: 'tns', rows: effectiveCount }, 'Archivo cargado');
     res.json({
       ok: true,
       modulo,
@@ -101,6 +105,7 @@ router.post('/upload/tns', upload.single('file'), (req: Request, res: Response) 
       columns: parsed.columns,
     });
   } catch (err) {
+    logger.error({ err, modulo, source: 'tns' }, 'Error al procesar archivo');
     res.status(500).json({ error: `Error al procesar archivo: ${(err as Error).message}` });
   }
 });
@@ -133,11 +138,12 @@ router.get('/cruce', (req: Request, res: Response) => {
     return;
   }
   const result = reconcile(modulo, s.gestor, s.tns);
+  logger.info({ modulo, totalRows: result.rows.length, warnings: result.warnings.length }, 'Cruce ejecutado');
   res.json(result);
 });
 
 // ─── Debug: view raw columns from uploaded files ──────────────────────────────
-router.get('/debug/columns', (req: Request, res: Response) => {
+router.get('/debug/columns', (_req: Request, res: Response) => {
   res.json({
     letras: {
       gestor: store.letras.gestor?.columns ?? null,
@@ -151,7 +157,7 @@ router.get('/debug/columns', (req: Request, res: Response) => {
 });
 
 // ─── Cruce ALL (Letras + Pagos combined) ─────────────────────────────────────
-router.get('/cruce/all', (req: Request, res: Response) => {
+router.get('/cruce/all', (_req: Request, res: Response) => {
   const letrasStore = getStore('letras');
   const pagosStore = getStore('pagos');
 
@@ -177,11 +183,12 @@ router.get('/cruce/all', (req: Request, res: Response) => {
     combinedRows = combinedRows.concat(r.rows);
   }
 
+  logger.info({ totalRows: combinedRows.length, warnings: warnings.length }, 'Cruce ALL ejecutado');
   res.json({ rows: combinedRows, warnings });
 });
 
 // ─── Cruce Excel Download ──────────────────────────────────────────────────────
-router.get('/cruce/excel', async (req: Request, res: Response) => {
+router.get('/cruce/excel', async (_req: Request, res: Response) => {
   const letrasStore = getStore('letras');
   const pagosStore = getStore('pagos');
 
@@ -200,10 +207,12 @@ router.get('/cruce/excel', async (req: Request, res: Response) => {
 
     const buf = await generateExcel(combinedRows);
     const filename = `cruce_completo_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    logger.info({ rows: combinedRows.length, filename }, 'Excel exportado');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buf);
   } catch (err) {
+    logger.error({ err }, 'Error al generar Excel');
     res.status(500).json({ error: `Error al generar Excel: ${(err as Error).message}` });
   }
 });
@@ -216,6 +225,7 @@ router.delete('/reset', (req: Request, res: Response) => {
     return;
   }
   store[modulo] = { gestor: null, tns: null };
+  logger.info({ modulo }, 'Módulo reseteado');
   res.json({ ok: true, message: `Módulo ${modulo} limpiado.` });
 });
 

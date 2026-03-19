@@ -13,7 +13,7 @@ export function normalize(val: string | number | null | undefined): string {
  * Parses an Excel or CSV buffer into rows of key-value pairs.
  * Tries multiple header rows (0, 1, 2, 3, 4, 5) to find the most columns.
  */
-export function parseFile(buffer: Buffer, originalName: string): ParsedFile {
+export function parseFile(buffer: Buffer, _originalName: string): ParsedFile {
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
