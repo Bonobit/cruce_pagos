@@ -3,13 +3,49 @@
 
 <head>
   <meta name="description" content="Herramienta de conciliación Gestor vs TNS para pagos y letras." />
-  <meta name="robots" content="noindex" /> <!-- si es app interna -->
+  <meta name="robots" content="noindex" />
   <link rel="icon" href="/favicon.ico" />
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Conciliación Gestor vs TNS</title>
   <link rel="stylesheet" href="./styles.css">
+  <style>
+    /* ── TNS multi-file list ─────────────────────────────── */
+    .tns-file-list {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
 
+    .tns-file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #EBF4FF;
+      border: 1px solid var(--blue-light);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: var(--blue-dark);
+    }
+
+    .tns-file-item .tns-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tns-file-item .tns-rows {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .tns-add-btn {
+      margin-top: 10px;
+    }
+  </style>
 </head>
 
 <body>
@@ -55,18 +91,22 @@
           <div class="upload-info" id="info-gestor"></div>
         </div>
 
-        <!-- TNS -->
+        <!-- TNS (múltiples archivos) -->
         <div class="upload-panel" id="panel-tns" ondragover="handleDragOver(event, 'tns')"
           ondragleave="handleDragLeave(event, 'tns')" ondrop="handleDrop(event, 'tns')">
-          <label class="title">🏦 Archivo TNS</label>
-          <div class="file-input-wrap">
+          <label class="title">🏦 Archivos TNS <span id="tns-count-badge" style="font-size:11px;font-weight:400;color:var(--blue);"></span></label>
+
+          <!-- Lista de archivos TNS cargados -->
+          <div class="tns-file-list" id="tns-file-list"></div>
+
+          <!-- Botón para agregar otro archivo TNS -->
+          <div class="file-input-wrap tns-add-btn">
             <label class="btn-file">
-              Elegir archivo
-              <input type="file" id="file-tns" accept=".xlsx,.xls,.csv" onchange="uploadFile('tns', this)" />
+              ➕ Agregar archivo TNS
+              <input type="file" id="file-tns" accept=".xlsx,.xls,.csv" onchange="uploadFile('tns', this)" multiple />
             </label>
-            <span class="file-name" id="name-tns">Sin archivo</span>
           </div>
-          <div class="drop-hint">📂 o arrastra el archivo aquí</div>
+          <div class="drop-hint">📂 o arrastra archivos aquí (se acumulan)</div>
           <div class="upload-info" id="info-tns"></div>
         </div>
       </div>
@@ -80,8 +120,11 @@
           <span class="spinner"></span>
           <span class="btn-label">🔀 Generar cruce</span>
         </button>
-        <button class="btn btn-success" id="btn-excel" onclick="descargarExcel()" disabled>
-          ⬇️ Descargar Excel
+        <button class="btn btn-success btn-excel" onclick="descargarExcel('cruce')" disabled>
+          ⬇️ Excel Cruce
+        </button>
+        <button class="btn btn-success btn-excel" onclick="descargarExcel('pagos')" disabled>
+          ⬇️ Excel Pagos
         </button>
         <button class="btn btn-danger" onclick="resetModulo()">
           🗑️ Limpiar módulo
@@ -109,7 +152,7 @@
 
       <!-- Filter -->
       <div class="filter-bar" style="margin-bottom:14px;">
-        <input type="text" id="search-input" placeholder="🔍 Buscar por registro..." oninput="filterTable()" />
+        <input type="text" id="search-input" placeholder="🔍 Buscar por registro o valor..." oninput="filterTable()" />
         <select id="filter-estado" onchange="filterTable()">
           <option value="">Todos los estados</option>
           <option value="Ambos">✅ Ambos</option>
@@ -121,6 +164,12 @@
           <option value="RECIBO">RECIBO</option>
           <option value="LETRA">LETRA</option>
         </select>
+        <select id="filter-estadopago" onchange="filterTable()">
+          <option value="">Todos los pagos</option>
+          <option value="Pagado">✅ Pagado</option>
+          <option value="En espera de pago">⏳ En espera</option>
+          <option value="Sin información">— Sin info</option>
+        </select>
       </div>
 
       <!-- Table -->
@@ -131,9 +180,11 @@
               <th onclick="sortTable('registro')" style="cursor:pointer">Registro ↕</th>
               <th onclick="sortTable('tipo')" style="cursor:pointer">Tipo ↕</th>
               <th class="center" onclick="sortTable('fechaVto')" style="cursor:pointer">Fecha Vto ↕</th>
+              <th id="col-valor" class="center" onclick="sortTable('valor')" style="cursor:pointer">Valor ↕</th>
               <th class="center">Gestor</th>
               <th class="center">TNS</th>
               <th onclick="sortTable('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
+              <th onclick="sortTable('estadoPago')" style="cursor:pointer">Pago ↕</th>
             </tr>
           </thead>
           <tbody id="result-body"></tbody>

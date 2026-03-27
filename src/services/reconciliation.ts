@@ -11,20 +11,40 @@ export interface ReconciliationResult {
   warnings: string[];
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+interface GestorEntry {
+  key: string;
+  fechaVto: string;
+  tipo: string;
+  valor: string;
+  estadoPago: string;
+}
 
-/**
- * Detects registro and fechaVto columns for a given source file.
- * Throws if no alias matches for the registro (crucial code).
- */
+interface TnsEntry {
+  key: string;
+  fechaVto: string;
+  tipo: string;
+  estadoPago: string;
+}
+
+type ModuleAliases = {
+  registro: string[];
+  fechaVto: string[];
+  valor?: string[];
+  estadoPago?: string[];
+};
+
+// ─── Column detection ────────────────────────────────────────────────────────
+
 function detectSourceColumns(
   file: ParsedFile,
-  aliases: { registro: string[]; fechaVto: string[] },
+  aliases: ModuleAliases,
   sourceName: string,
   warnings: string[]
-): { registroCol: string; fechaCol: string | null } {
+): { registroCol: string; fechaCol: string | null; valorCol: string | null; estadoPagoCol: string | null } {
   const registroCol = findColumn(file.columns, aliases.registro);
   const fechaCol = findColumn(file.columns, aliases.fechaVto);
+  const valorCol = aliases.valor ? findColumn(file.columns, aliases.valor) : null;
+  const estadoPagoCol = aliases.estadoPago ? findColumn(file.columns, aliases.estadoPago) : null;
 
   if (!registroCol) {
     throw new AppError(
@@ -32,174 +52,213 @@ function detectSourceColumns(
       `[${sourceName}] No se encontró ninguna columna de alias conocido para el "registro/clave". Columnas presentes: ${file.columns.join(', ')}`
     );
   }
-  
+
   if (!fechaCol) {
-    warnings.push(`[${sourceName}]: No se encontró columna de fecha. La fecha de vencimiento quedará vacía en caso de no cruzar.`);
+    warnings.push(`[${sourceName}]: No se encontró columna de fecha. La fecha de vencimiento quedará vacía.`);
   }
 
-  return { registroCol, fechaCol };
+  return { registroCol, fechaCol, valorCol, estadoPagoCol };
 }
 
-/**
- * Applies TNS-specific row filtering depending on the module.
- * Letras: skip first metadata row.
- * Pagos: skip first 3 metadata rows, then keep every other row.
- */
-function filterTnsRows(
-  rows: Record<string, string>[],
-  modulo: Modulo
-): Record<string, string>[] {
+// ─── TNS row filtering ───────────────────────────────────────────────────────
+
+function filterTnsRows(rows: Record<string, string>[], modulo: Modulo): Record<string, string>[] {
   const rowsToSkip = modulo === 'letras' ? 1 : modulo === 'pagos' ? 3 : 0;
   const sliced = rowsToSkip > 0 ? rows.slice(rowsToSkip) : rows;
   return modulo === 'pagos' ? sliced.filter((_, i) => i % 2 === 0) : sliced;
 }
 
+// ─── Entry builders ──────────────────────────────────────────────────────────
+
 /**
- * Extracts a map of registro -> {fechaVto, tipo} from parsed rows.
- * Throws ERR_DUPLICATES_GESTOR if isGestor is true and there are duplicates with different dates.
+ * Builds an array of entries from the GESTOR file.
+ * Duplicates (same key) are all preserved — no deduplication, no errors.
  */
-export function buildMap(
+function buildGestorEntries(
   parsed: ParsedFile,
   registroCol: string,
   fechaVtoCol: string | null,
-  tipoDefault: string,
-  isGestor: boolean
-): Map<string, { fechaVto: string; tipo: string }> {
-  const map = new Map<string, { fechaVto: string; tipo: string }>();
+  valorCol: string | null,
+  estadoPagoCol: string | null,
+  tipoDefault: string
+): GestorEntry[] {
+  const entries: GestorEntry[] = [];
   const normalizedColName = normalize(registroCol);
 
   for (const row of parsed.rows) {
     const reg = normalize(row[registroCol]);
     if (!reg) continue;
-    // Skip the row if the registro value IS the column header itself (header parsed as data row)
     if (reg === normalizedColName) continue;
-    // Skip values that look like dates (M/DD/YY, MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.)
     if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
 
     const fechaRaw = fechaVtoCol ? row[fechaVtoCol] : '';
     const fecha = formatDate(fechaRaw || '');
+    const valor = valorCol ? (row[valorCol] || '') : '';
+    const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
 
-    if (!map.has(reg)) {
-      map.set(reg, { fechaVto: fecha, tipo: tipoDefault });
-    } else {
-      const existing = map.get(reg)!;
-      
-      // Valida regla estricta sobre duplicados en GESTOR
-      if (isGestor && fecha && existing.fechaVto && fecha !== existing.fechaVto) {
-         throw new AppError(
-           'ERR_DUPLICATES_GESTOR', 
-           `Se encontró un registro duplicado en archivo GESTOR con el identificador "${reg}" y distintas fechas de vencimiento (${existing.fechaVto} vs ${fecha}).`
-         );
-      }
-
-      // Keep earliest date (most proxima) among duplicates logically for non-erroring duplicates or TNS
-      if (fecha && existing.fechaVto) {
-        const d1 = new Date(fechaRaw || '');
-        const d2 = new Date(existing.fechaVto);
-        if (!isNaN(d1.getTime()) && !isNaN(d2.getTime()) && d1 < d2) {
-          map.set(reg, { fechaVto: fecha, tipo: tipoDefault });
-        }
-      } else if (fecha && !existing.fechaVto) {
-        map.set(reg, { fechaVto: fecha, tipo: tipoDefault });
-      }
-    }
+    entries.push({ key: reg, fechaVto: fecha, tipo: tipoDefault, valor, estadoPago });
   }
 
-  return map;
+  return entries;
 }
 
 /**
- * Builds the reconciliation row list using substring matching:
- * gestorKey must be contained within tnsKey.
- * Iterates TNS first (preserving file order), then appends GESTOR-only rows.
+ * Builds an array of entries from a single TNS file (after row filtering).
  */
-export function buildMatchedRows(
-  gestorMap: Map<string, { fechaVto: string; tipo: string }>,
-  tnsMap: Map<string, { fechaVto: string; tipo: string }>,
+function buildTnsEntries(
+  rows: Record<string, string>[],
+  registroCol: string,
+  fechaVtoCol: string | null,
+  estadoPagoCol: string | null,
+  tipoDefault: string
+): TnsEntry[] {
+  const entries: TnsEntry[] = [];
+  const normalizedColName = normalize(registroCol);
+
+  for (const row of rows) {
+    const reg = normalize(row[registroCol]);
+    if (!reg) continue;
+    if (reg === normalizedColName) continue;
+    if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
+
+    const fechaRaw = fechaVtoCol ? row[fechaVtoCol] : '';
+    const fecha = formatDate(fechaRaw || '');
+    const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
+
+    entries.push({ key: reg, fechaVto: fecha, tipo: tipoDefault, estadoPago });
+  }
+
+  return entries;
+}
+
+// ─── Matching ────────────────────────────────────────────────────────────────
+
+/**
+ * Matches gestor entries to TNS entries via substring containment.
+ * Duplicates in GESTOR (same key) are all shown — each gets its own result row.
+ * If one TNS entry matches N gestor duplicates, it produces N rows all marked "Ambos".
+ */
+function buildMatchedRows(
+  gestorEntries: GestorEntry[],
+  tnsEntries: TnsEntry[],
   modulo: Modulo
 ): RegistroRow[] {
   const rows: RegistroRow[] = [];
-  const matchedGestorKeys = new Set<string>();
+  // Track matched gestor by index so duplicates each get evaluated independently
+  const matchedGestorIndices = new Set<number>();
 
-  // 1. Iterate TNS keys first (preserves TNS file order)
-  for (const tnsKey of tnsMap.keys()) {
-    const tnsData = tnsMap.get(tnsKey)!;
-
-    // Find a GESTOR key that is contained within this TNS key
-    let matchedGestorKey: string | undefined;
-    for (const gestorKey of gestorMap.keys()) {
-      if (tnsKey.includes(gestorKey)) {
-        matchedGestorKey = gestorKey;
-        break;
+  // 1. TNS entries first (preserves TNS file order)
+  for (const tnsEntry of tnsEntries) {
+    let matchedGestorIdx = -1;
+    for (let i = 0; i < gestorEntries.length; i++) {
+      if (!matchedGestorIndices.has(i) && tnsEntry.key.includes(gestorEntries[i].key)) {
+        matchedGestorIdx = i;
+        break; // Match 1-to-1
       }
     }
 
-    const inGestor = !!matchedGestorKey;
-    if (inGestor) matchedGestorKeys.add(matchedGestorKey!);
-
-    const gestorData = matchedGestorKey ? gestorMap.get(matchedGestorKey) : undefined;
-    const tipo = gestorData?.tipo ?? tnsData.tipo;
-    const fechaVto = gestorData?.fechaVto || tnsData.fechaVto || '';
-    const estado: RegistroRow['estadoConciliacion'] = inGestor ? 'Ambos' : 'Solo TNS';
-
-    rows.push({ registro: tnsKey, tipo, fechaVto, gestor: inGestor, tns: true, estadoConciliacion: estado, modulo });
+    if (matchedGestorIdx !== -1) {
+      matchedGestorIndices.add(matchedGestorIdx);
+      const ge = gestorEntries[matchedGestorIdx];
+      const estadoPago = ge.estadoPago || tnsEntry.estadoPago;
+      rows.push({
+        registro: tnsEntry.key,
+        tipo: ge.tipo,
+        fechaVto: ge.fechaVto || tnsEntry.fechaVto || '',
+        gestor: true,
+        tns: true,
+        estadoConciliacion: 'Ambos',
+        modulo,
+        valor: ge.valor || undefined,
+        estadoPago: estadoPago || undefined,
+      });
+    } else {
+      rows.push({
+        registro: tnsEntry.key,
+        tipo: tnsEntry.tipo,
+        fechaVto: tnsEntry.fechaVto,
+        gestor: false,
+        tns: true,
+        estadoConciliacion: 'Solo TNS',
+        modulo,
+        estadoPago: tnsEntry.estadoPago || undefined,
+      });
+    }
   }
 
-  // 2. GESTOR-only rows (those not matched to any TNS)
-  for (const [gestorKey, gestorData] of gestorMap.entries()) {
-    if (!matchedGestorKeys.has(gestorKey)) {
-      rows.push({ registro: gestorKey, tipo: gestorData.tipo, fechaVto: gestorData.fechaVto, gestor: true, tns: false, estadoConciliacion: 'Solo Gestor', modulo });
+  // 2. Unmatched gestor entries (Solo Gestor) — includes unmatched duplicates
+  for (let i = 0; i < gestorEntries.length; i++) {
+    if (!matchedGestorIndices.has(i)) {
+      const ge = gestorEntries[i];
+      rows.push({
+        registro: ge.key,
+        tipo: ge.tipo,
+        fechaVto: ge.fechaVto,
+        gestor: true,
+        tns: false,
+        estadoConciliacion: 'Solo Gestor',
+        modulo,
+        valor: ge.valor || undefined,
+        estadoPago: ge.estadoPago || undefined,
+      });
     }
   }
 
   return rows;
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+// ─── Main export ─────────────────────────────────────────────────────────────
 
 export function reconcile(
   modulo: Modulo,
   gestorFile: ParsedFile | null,
-  tnsFile: ParsedFile | null
+  tnsFiles: ParsedFile[]   // ahora acepta múltiples archivos TNS
 ): ReconciliationResult {
   const warnings: string[] = [];
-  const aliases = COLUMN_ALIASES[modulo];
+  const aliases = COLUMN_ALIASES[modulo] as ModuleAliases;
   const tipoDefault = modulo === 'pagos' ? 'RECIBO' : 'LETRA';
 
-  // ---- Detect columns and build GESTOR map ----
+  // ---- GESTOR ----
   let gestorRegistroCol: string | null = null;
   let gestorFechaCol: string | null = null;
-  let gestorMap = new Map<string, { fechaVto: string; tipo: string }>();
+  let gestorEntries: GestorEntry[] = [];
 
   if (gestorFile) {
-    ({ registroCol: gestorRegistroCol, fechaCol: gestorFechaCol } = detectSourceColumns(
-      gestorFile, aliases, 'GESTOR', warnings
-    ));
-    if (gestorRegistroCol) {
-      // isGestor = true -> lanzará error si hay duplicados con distintas fechas
-      gestorMap = buildMap(gestorFile, gestorRegistroCol, gestorFechaCol, tipoDefault, true);
-    }
+    const d = detectSourceColumns(gestorFile, aliases, 'GESTOR', warnings);
+    gestorRegistroCol = d.registroCol;
+    gestorFechaCol = d.fechaCol;
+    gestorEntries = buildGestorEntries(
+      gestorFile,
+      d.registroCol,
+      d.fechaCol,
+      d.valorCol,
+      d.estadoPagoCol,
+      tipoDefault
+    );
   }
 
-  // ---- Detect columns and build TNS map ----
+  // ---- TNS (merge de todos los archivos) ----
   let tnsRegistroCol: string | null = null;
   let tnsFechaCol: string | null = null;
-  let tnsMap = new Map<string, { fechaVto: string; tipo: string }>();
+  let tnsEntries: TnsEntry[] = [];
 
-  if (tnsFile) {
-    ({ registroCol: tnsRegistroCol, fechaCol: tnsFechaCol } = detectSourceColumns(
-      tnsFile, aliases, 'TNS', warnings
-    ));
-    if (tnsRegistroCol) {
-      const filteredRows = filterTnsRows(tnsFile.rows, modulo);
-      const tnsParsed = { ...tnsFile, rows: filteredRows };
-      // isGestor = false
-      tnsMap = buildMap(tnsParsed, tnsRegistroCol, tnsFechaCol, tipoDefault, false);
-    }
+  for (const tnsFile of tnsFiles) {
+    const d = detectSourceColumns(tnsFile, aliases, 'TNS', warnings);
+    if (!tnsRegistroCol) tnsRegistroCol = d.registroCol;
+    if (!tnsFechaCol) tnsFechaCol = d.fechaCol;
+
+    const filteredRows = filterTnsRows(tnsFile.rows, modulo);
+    const fileEntries = buildTnsEntries(
+      filteredRows,
+      d.registroCol,
+      d.fechaCol,
+      d.estadoPagoCol,
+      tipoDefault
+    );
+    tnsEntries = tnsEntries.concat(fileEntries);
   }
 
-  // ---- Build result rows (no sorting — preserves source file order) ----
-  const rows = buildMatchedRows(gestorMap, tnsMap, modulo);
+  const rows = buildMatchedRows(gestorEntries, tnsEntries, modulo);
 
   return {
     rows,

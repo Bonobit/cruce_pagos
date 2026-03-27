@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMap, buildMatchedRows, reconcile } from '../services/reconciliation';
+import { reconcile } from '../services/reconciliation';
 import { ParsedFile } from '../types';
 import { AppError } from '../utils/errors';
 
@@ -11,155 +11,6 @@ function makeParsed(rows: Record<string, string>[], columns?: string[]): ParsedF
     columns: columns ?? (rows.length > 0 ? Object.keys(rows[0]) : []),
   };
 }
-
-// ─── buildMap() ───────────────────────────────────────────────────────────────
-
-describe('buildMap()', () => {
-  it('construye un mapa básico con un registro', () => {
-    const parsed = makeParsed([{ RECIBO: 'R001', FECHA: '2025-01-10' }]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.size).toBe(1);
-    expect(map.has('R001')).toBe(true);
-    expect(map.get('R001')?.tipo).toBe('RECIBO');
-  });
-
-  it('normaliza la clave del registro (mayúsculas, sin acentos)', () => {
-    const parsed = makeParsed([{ RECIBO: 'r001', FECHA: '' }]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.has('R001')).toBe(true);
-  });
-
-  it('ignora filas con registro vacío', () => {
-    const parsed = makeParsed([
-      { RECIBO: '', FECHA: '2025-01-01' },
-      { RECIBO: 'R002', FECHA: '2025-01-02' },
-    ]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.size).toBe(1);
-    expect(map.has('R002')).toBe(true);
-  });
-
-  it('ignora filas donde el registro parece una fecha', () => {
-    const parsed = makeParsed([
-      { RECIBO: '2025-01-10', FECHA: '2025-01-10' },
-      { RECIBO: 'R003', FECHA: '2025-01-10' },
-    ]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.size).toBe(1);
-    expect(map.has('R003')).toBe(true);
-  });
-
-  it('ignora la fila donde el registro es el nombre de la columna (header duplicado)', () => {
-    const parsed = makeParsed([
-      { RECIBO: 'RECIBO', FECHA: 'FECHA' },
-      { RECIBO: 'R004', FECHA: '2025-01-10' },
-    ]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.size).toBe(1);
-    expect(map.has('R004')).toBe(true);
-  });
-
-  it('con duplicados en isGestor=false mantiene la entrada con fecha mas proxima', () => {
-    const parsed = makeParsed([
-      { RECIBO: 'R005', FECHA: '2025-06-01' },
-      { RECIBO: 'R005', FECHA: '2025-03-01' },
-      { RECIBO: 'R005', FECHA: '2025-09-01' },
-    ]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.size).toBe(1);
-    expect(map.has('R005')).toBe(true);
-  });
-
-  it('lanza error con duplicados con diferente fecha en isGestor=true', () => {
-    const parsed = makeParsed([
-      { RECIBO: 'R005', FECHA: '2025-06-01' },
-      { RECIBO: 'R005', FECHA: '2025-03-01' },
-    ]);
-    expect(() => buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', true)).toThrowError(AppError);
-  });
-
-  it('con duplicados: si el primero no tiene fecha y el segundo sí, toma la del segundo', () => {
-    const parsed = makeParsed([
-      { RECIBO: 'R006', FECHA: '' },
-      { RECIBO: 'R006', FECHA: '2025-05-01' },
-    ]);
-    const map = buildMap(parsed, 'RECIBO', 'FECHA', 'RECIBO', false);
-    expect(map.get('R006')?.fechaVto).not.toBe('');
-  });
-
-  it('funciona sin columna de fecha (fechaVtoCol null)', () => {
-    const parsed = makeParsed([{ RECIBO: 'R007' }]);
-    const map = buildMap(parsed, 'RECIBO', null, 'LETRA', false);
-    expect(map.has('R007')).toBe(true);
-    expect(map.get('R007')?.fechaVto).toBe('');
-  });
-});
-
-// ─── buildMatchedRows() ───────────────────────────────────────────────────────
-
-describe('buildMatchedRows()', () => {
-  const make = (key: string, fecha = '') => ({ fechaVto: fecha, tipo: 'RECIBO' });
-
-  it('clasifica como "Ambos" cuando gestorKey es substring de tnsKey', () => {
-    const gestorMap = new Map([['SALINI1', make('SALINI1')]]);
-    const tnsMap = new Map([['NDLTSALINI1EHES37-1', make('NDLTSALINI1EHES37-1')]]);
-    const rows = buildMatchedRows(gestorMap, tnsMap, 'letras');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].estadoConciliacion).toBe('Ambos');
-    expect(rows[0].gestor).toBe(true);
-    expect(rows[0].tns).toBe(true);
-  });
-
-  it('clasifica como "Solo TNS" cuando no hay match en gestor', () => {
-    const gestorMap = new Map<string, { fechaVto: string; tipo: string }>();
-    const tnsMap = new Map([['TNS-001', make('TNS-001')]]);
-    const rows = buildMatchedRows(gestorMap, tnsMap, 'pagos');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].estadoConciliacion).toBe('Solo TNS');
-    expect(rows[0].gestor).toBe(false);
-    expect(rows[0].tns).toBe(true);
-  });
-
-  it('clasifica como "Solo Gestor" cuando el registro de gestor no aparece en TNS', () => {
-    const gestorMap = new Map([['G-001', make('G-001')]]);
-    const tnsMap = new Map<string, { fechaVto: string; tipo: string }>();
-    const rows = buildMatchedRows(gestorMap, tnsMap, 'pagos');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].estadoConciliacion).toBe('Solo Gestor');
-    expect(rows[0].gestor).toBe(true);
-    expect(rows[0].tns).toBe(false);
-  });
-
-  it('mezcla los tres estados correctamente', () => {
-    const gestorMap = new Map([
-      ['ABC', make('ABC')],
-      ['SOLO-G', make('SOLO-G')],
-    ]);
-    const tnsMap = new Map([
-      ['PREFIJO-ABC-SUFIJO', make('PREFIJO-ABC-SUFIJO')],
-      ['SOLO-T', make('SOLO-T')],
-    ]);
-    const rows = buildMatchedRows(gestorMap, tnsMap, 'pagos');
-    const ambos = rows.filter((r) => r.estadoConciliacion === 'Ambos');
-    const soloG = rows.filter((r) => r.estadoConciliacion === 'Solo Gestor');
-    const soloT = rows.filter((r) => r.estadoConciliacion === 'Solo TNS');
-    expect(ambos).toHaveLength(1);
-    expect(soloG).toHaveLength(1);
-    expect(soloT).toHaveLength(1);
-  });
-
-  it('preserva el campo modulo en cada fila', () => {
-    const gestorMap = new Map([['X', make('X')]]);
-    const tnsMap = new Map<string, { fechaVto: string; tipo: string }>();
-    const rows = buildMatchedRows(gestorMap, tnsMap, 'letras');
-    expect(rows[0].modulo).toBe('letras');
-  });
-
-  it('retorna array vacío si ambos mapas están vacíos', () => {
-    const rows = buildMatchedRows(new Map(), new Map(), 'pagos');
-    expect(rows).toHaveLength(0);
-  });
-});
 
 // ─── reconcile() — integración ────────────────────────────────────────────────
 
@@ -180,7 +31,7 @@ describe('reconcile()', () => {
       ],
       ['COMPROBANTE/ TIPO DCTO', 'FECHA']
     );
-    const result = reconcile('pagos', gestor, tns);
+    const result = reconcile('pagos', gestor, [tns]);
     const ambos = result.rows.filter((r) => r.estadoConciliacion === 'Ambos');
     expect(ambos).toHaveLength(1);
     expect(ambos[0].registro).toBe('PREFIJO-R100-X');
@@ -191,7 +42,7 @@ describe('reconcile()', () => {
       [{ COL_DESCONOCIDA: 'V1', FECHA: '2025-01-01' }],
       ['COL_DESCONOCIDA', 'FECHA']
     );
-    expect(() => reconcile('pagos', gestor, null)).toThrowError(AppError);
+    expect(() => reconcile('pagos', gestor, [])).toThrowError(AppError);
   });
 
   it('funciona con solo un archivo cargado (TNS null)', () => {
@@ -199,7 +50,7 @@ describe('reconcile()', () => {
       [{ RECIBO: 'R200', FECHA: '2025-02-01' }],
       ['RECIBO', 'FECHA']
     );
-    const result = reconcile('pagos', gestor, null);
+    const result = reconcile('pagos', gestor, []);
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].estadoConciliacion).toBe('Solo Gestor');
   });
@@ -215,7 +66,7 @@ describe('reconcile()', () => {
       ],
       ['COMPROBANTE/ TIPO DCTO', 'FECHA']
     );
-    const result = reconcile('pagos', null, tns);
+    const result = reconcile('pagos', null, [tns]);
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].estadoConciliacion).toBe('Solo TNS');
   });
@@ -225,7 +76,8 @@ describe('reconcile()', () => {
       [{ RECIBO: 'R001', FECHA: '2025-01-01' }],
       ['RECIBO', 'FECHA']
     );
-    const result = reconcile('pagos', gestor, null);
+    const result = reconcile('pagos', gestor, []);
     expect(result.columnInfo.gestor.registro).toBe('RECIBO');
   });
 });
+
