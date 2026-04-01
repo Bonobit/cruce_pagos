@@ -23,6 +23,7 @@ interface TnsEntry {
   key: string;
   fechaVto: string;
   tipo: string;
+  valor: string;
   estadoPago: string;
 }
 
@@ -63,7 +64,7 @@ function detectSourceColumns(
 // ─── TNS row filtering ───────────────────────────────────────────────────────
 
 function filterTnsRows(rows: Record<string, string>[], modulo: Modulo): Record<string, string>[] {
-  const rowsToSkip = modulo === 'letras' ? 1 : modulo === 'pagos' ? 3 : 0;
+  const rowsToSkip = modulo === 'letras' ? 0 : modulo === 'pagos' ? 3 : 0;
   const sliced = rowsToSkip > 0 ? rows.slice(rowsToSkip) : rows;
   return modulo === 'pagos' ? sliced.filter((_, i) => i % 2 === 0) : sliced;
 }
@@ -109,6 +110,7 @@ function buildTnsEntries(
   rows: Record<string, string>[],
   registroCol: string,
   fechaVtoCol: string | null,
+  valorCol: string | null,
   estadoPagoCol: string | null,
   tipoDefault: string
 ): TnsEntry[] {
@@ -123,9 +125,10 @@ function buildTnsEntries(
 
     const fechaRaw = fechaVtoCol ? row[fechaVtoCol] : '';
     const fecha = formatDate(fechaRaw || '');
+    const valor = valorCol ? (row[valorCol] || '') : '';
     const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
 
-    entries.push({ key: reg, fechaVto: fecha, tipo: tipoDefault, estadoPago });
+    entries.push({ key: reg, fechaVto: fecha, tipo: tipoDefault, valor, estadoPago });
   }
 
   return entries;
@@ -181,6 +184,7 @@ function buildMatchedRows(
         tns: true,
         estadoConciliacion: 'Solo TNS',
         modulo,
+        valor: tnsEntry.valor || undefined,
         estadoPago: tnsEntry.estadoPago || undefined,
       });
     }
@@ -252,6 +256,7 @@ export function reconcile(
       filteredRows,
       d.registroCol,
       d.fechaCol,
+      d.valorCol,
       d.estadoPagoCol,
       tipoDefault
     );

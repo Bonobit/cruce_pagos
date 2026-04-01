@@ -68,185 +68,187 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
   wb.created = new Date();
 
   if (type === 'cruce') {
-  // ══════════════════════════════════════════════════════════════════════
-  // HOJA 1: Cruce Completo
-  // ══════════════════════════════════════════════════════════════════════
-  const ws = wb.addWorksheet('Cruce Completo');
+    // ══════════════════════════════════════════════════════════════════════
+    // HOJA 1: Cruce Completo
+    // ══════════════════════════════════════════════════════════════════════
+    const ws = wb.addWorksheet('Cruce Completo');
 
-  ws.columns = [
-    { header: 'Módulo', key: 'modulo', width: 10 },
-    { header: 'Registro', key: 'registro', width: 28 },
-    { header: 'Tipo', key: 'tipo', width: 12 },
-    { header: 'Fecha Vto', key: 'fechaVto', width: 16 },
-    { header: 'Valor', key: 'valor', width: 18 },
-    { header: 'Gestor', key: 'gestor', width: 10 },
-    { header: 'TNS', key: 'tns', width: 10 },
-    { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
-  ];
+    ws.columns = [
+      { header: 'Módulo', key: 'modulo', width: 10 },
+      { header: 'Registro', key: 'registro', width: 28 },
+      { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Fecha Vto', key: 'fechaVto', width: 16 },
+      { header: 'Valor', key: 'valor', width: 18 },
+      { header: 'Gestor', key: 'gestor', width: 10 },
+      { header: 'TNS', key: 'tns', width: 10 },
+      { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
+      { header: 'Pago', key: 'estadoPago', width: 20 },
+    ];
 
-  styleHeader(ws.getRow(1));
+    styleHeader(ws.getRow(1));
 
-  rows.forEach((r, i) => {
-    const valorNum = r.valor ? parseFloat(r.valor.replace(/[^0-9.-]/g, '')) : NaN;
-    const row = ws.addRow({
-      modulo: r.modulo,
-      registro: r.registro,
-      tipo: r.tipo,
-      fechaVto: r.fechaVto,
-      valor: !isNaN(valorNum) ? valorNum : (r.valor || ''),
-      gestor: r.gestor ? 'X' : '',
-      tns: r.tns ? 'X' : '',
-      estadoConciliacion: r.estadoConciliacion,
-    });
+    rows.forEach((r, i) => {
+      const valorNum = r.valor ? parseFloat(r.valor.replace(/[^0-9.-]/g, '')) : NaN;
+      const row = ws.addRow({
+        modulo: r.modulo,
+        registro: r.registro,
+        tipo: r.tipo,
+        fechaVto: r.fechaVto,
+        valor: !isNaN(valorNum) ? valorNum : (r.valor || ''),
+        gestor: r.gestor ? 'X' : '',
+        tns: r.tns ? 'X' : '',
+        estadoConciliacion: r.estadoConciliacion,
+        estadoPago: normalizeEstadoPago(r.estadoPago),
+      });
 
-    const bgBase = estadoConciliacionColors[r.estadoConciliacion] ?? 'FFFFFFFF';
-    const bgArgb = i % 2 === 0 ? bgBase : blendColor(bgBase);
+      const bgBase = estadoConciliacionColors[r.estadoConciliacion] ?? 'FFFFFFFF';
+      const bgArgb = i % 2 === 0 ? bgBase : blendColor(bgBase);
 
-    row.eachCell((cell) => styleDataCell(cell, bgArgb));
+      row.eachCell((cell) => styleDataCell(cell, bgArgb));
 
-    // Centro en columnas de marca y tipo
-    ['gestor', 'tns', 'tipo', 'fechaVto'].forEach((k) => {
-      row.getCell(k).alignment = { horizontal: 'center' };
-    });
+      // Centro en columnas de marca y tipo
+      ['gestor', 'tns', 'tipo', 'fechaVto'].forEach((k) => {
+        row.getCell(k).alignment = { horizontal: 'center' };
+      });
 
-    // Negrita para X
-    ['gestor', 'tns'].forEach((k) => {
-      const cell = row.getCell(k);
-      if (cell.value === 'X') {
-        cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1F4E79' } };
+      // Negrita para X
+      ['gestor', 'tns'].forEach((k) => {
+        const cell = row.getCell(k);
+        if (cell.value === 'X') {
+          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1F4E79' } };
+        }
+      });
+
+      // Formato de número para Valor
+      const valCell = row.getCell('valor');
+      if (!isNaN(valorNum)) {
+        valCell.numFmt = '#,##0';
+        valCell.alignment = { horizontal: 'right' };
       }
+
+      row.height = 18;
     });
 
-    // Formato de número para Valor
-    const valCell = row.getCell('valor');
-    if (!isNaN(valorNum)) {
-      valCell.numFmt = '#,##0';
-      valCell.alignment = { horizontal: 'right' };
-    }
+    // Fila de resumen al final
+    ws.addRow([]);
+    const total = rows.length;
+    const ambos = rows.filter((r) => r.estadoConciliacion === 'Ambos').length;
+    const soloG = rows.filter((r) => r.estadoConciliacion === 'Solo Gestor').length;
+    const soloT = rows.filter((r) => r.estadoConciliacion === 'Solo TNS').length;
 
-    row.height = 18;
-  });
+    [
+      ['Total registros', total],
+      ['Ambos (conciliados)', ambos],
+      ['Solo Gestor', soloG],
+      ['Solo TNS', soloT],
+    ].forEach(([label, value]) => {
+      const row = ws.addRow([label, value]);
+      row.getCell(1).font = { bold: true, name: 'Arial', size: 10 };
+      row.getCell(2).font = { name: 'Arial', size: 10 };
+    });
 
-  // Fila de resumen al final
-  ws.addRow([]);
-  const total = rows.length;
-  const ambos = rows.filter((r) => r.estadoConciliacion === 'Ambos').length;
-  const soloG = rows.filter((r) => r.estadoConciliacion === 'Solo Gestor').length;
-  const soloT = rows.filter((r) => r.estadoConciliacion === 'Solo TNS').length;
-
-  [
-    ['Total registros', total],
-    ['Ambos (conciliados)', ambos],
-    ['Solo Gestor', soloG],
-    ['Solo TNS', soloT],
-  ].forEach(([label, value]) => {
-    const row = ws.addRow([label, value]);
-    row.getCell(1).font = { bold: true, name: 'Arial', size: 10 };
-    row.getCell(2).font = { name: 'Arial', size: 10 };
-  });
-
-  ws.views = [{ state: 'frozen', ySplit: 1 }];
-  ws.autoFilter = { from: 'A1', to: 'H1' };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: 'A1', to: 'I1' };
   }
 
   if (type === 'pagos') {
-  // ══════════════════════════════════════════════════════════════════════
-  // HOJA 2: Estado de Pago (tabla independiente)
-  // ══════════════════════════════════════════════════════════════════════
-  const ws2 = wb.addWorksheet('Estado de Pago');
+    // ══════════════════════════════════════════════════════════════════════
+    // HOJA 2: Estado de Pago (tabla independiente)
+    // ══════════════════════════════════════════════════════════════════════
+    const ws2 = wb.addWorksheet('Estado de Pago');
 
-  ws2.columns = [
-    { header: 'Módulo', key: 'modulo', width: 10 },
-    { header: 'Registro', key: 'registro', width: 28 },
-    { header: 'Tipo', key: 'tipo', width: 12 },
-    { header: 'Fecha Vto', key: 'fechaVto', width: 16 },
-    { header: 'Valor', key: 'valor', width: 18 },
-    { header: 'Estado de Pago', key: 'estadoPago', width: 24 },
-    { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
-  ];
+    ws2.columns = [
+      { header: 'Módulo', key: 'modulo', width: 10 },
+      { header: 'Registro', key: 'registro', width: 28 },
+      { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Fecha Vto', key: 'fechaVto', width: 16 },
+      { header: 'Valor', key: 'valor', width: 18 },
+      { header: 'Estado de Pago', key: 'estadoPago', width: 24 },
+      { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
+    ];
 
-  styleHeader(ws2.getRow(1), 'FF375623'); // verde oscuro para diferenciar la hoja
+    styleHeader(ws2.getRow(1), 'FF375623'); // verde oscuro para diferenciar la hoja
 
-  // Incluir todos los registros — estadoPago puede ser vacío (mostrar "Sin información")
-  rows.forEach((r, i) => {
-    const estadoPagoNorm = normalizeEstadoPago(r.estadoPago);
-    const valorNum = r.valor ? parseFloat(r.valor.replace(/[^0-9.-]/g, '')) : NaN;
+    // Incluir todos los registros — estadoPago puede ser vacío (mostrar "Sin información")
+    rows.forEach((r, i) => {
+      const estadoPagoNorm = normalizeEstadoPago(r.estadoPago);
+      const valorNum = r.valor ? parseFloat(r.valor.replace(/[^0-9.-]/g, '')) : NaN;
 
-    const row = ws2.addRow({
-      modulo: r.modulo,
-      registro: r.registro,
-      tipo: r.tipo,
-      fechaVto: r.fechaVto,
-      valor: !isNaN(valorNum) ? valorNum : (r.valor || ''),
-      estadoPago: estadoPagoNorm || 'Sin información',
-      estadoConciliacion: r.estadoConciliacion,
+      const row = ws2.addRow({
+        modulo: r.modulo,
+        registro: r.registro,
+        tipo: r.tipo,
+        fechaVto: r.fechaVto,
+        valor: !isNaN(valorNum) ? valorNum : (r.valor || ''),
+        estadoPago: estadoPagoNorm || 'Sin información',
+        estadoConciliacion: r.estadoConciliacion,
+      });
+
+      // Color basado en el estado de pago normalizado
+      const upperNorm = estadoPagoNorm.toUpperCase();
+      const bgBase = estadoPagoColors[upperNorm] ?? 'FFFFFFFF';
+      const bgArgb = i % 2 === 0 ? bgBase : blendColor(bgBase);
+
+      row.eachCell((cell) => styleDataCell(cell, bgArgb));
+
+      ['tipo', 'fechaVto', 'estadoPago'].forEach((k) => {
+        row.getCell(k).alignment = { horizontal: 'center' };
+      });
+
+      // Negrita y color para el estado de pago
+      const estadoCell = row.getCell('estadoPago');
+      const ep = estadoPagoNorm.toUpperCase();
+      if (ep === 'PAGADO' || ep === 'PAGADA') {
+        estadoCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF375623' } };
+      } else if (ep.startsWith('EN ESPERA') || ep === 'PENDIENTE') {
+        estadoCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF7D6008' } };
+      } else {
+        estadoCell.font = { name: 'Arial', size: 10, color: { argb: 'FF666666' } };
+      }
+
+      // Formato numérico para Valor
+      const valCell = row.getCell('valor');
+      if (!isNaN(valorNum)) {
+        valCell.numFmt = '#,##0';
+        valCell.alignment = { horizontal: 'right' };
+      }
+
+      row.height = 18;
     });
 
-    // Color basado en el estado de pago normalizado
-    const upperNorm = estadoPagoNorm.toUpperCase();
-    const bgBase = estadoPagoColors[upperNorm] ?? 'FFFFFFFF';
-    const bgArgb = i % 2 === 0 ? bgBase : blendColor(bgBase);
+    // Resumen por estado de pago
+    ws2.addRow([]);
+    ws2.addRow([]);
 
-    row.eachCell((cell) => styleDataCell(cell, bgArgb));
+    const resumenRow = ws2.addRow(['Resumen Estado de Pago']);
+    resumenRow.getCell(1).font = { bold: true, name: 'Arial', size: 12, color: { argb: 'FF1F4E79' } };
 
-    ['tipo', 'fechaVto', 'estadoPago'].forEach((k) => {
-      row.getCell(k).alignment = { horizontal: 'center' };
+    ws2.addRow([]);
+
+    // Agrupar por estadoPago normalizado
+    const groupMap = new Map<string, number>();
+    for (const r of rows) {
+      const key = normalizeEstadoPago(r.estadoPago) || 'Sin información';
+      groupMap.set(key, (groupMap.get(key) ?? 0) + 1);
+    }
+
+    const summaryHeaderRow = ws2.addRow(['Estado', 'Cantidad']);
+    summaryHeaderRow.eachCell((cell) => {
+      cell.font = { bold: true, name: 'Arial', size: 10, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF375623' } };
+      cell.alignment = { horizontal: 'center' };
     });
+    summaryHeaderRow.height = 18;
 
-    // Negrita y color para el estado de pago
-    const estadoCell = row.getCell('estadoPago');
-    const ep = estadoPagoNorm.toUpperCase();
-    if (ep === 'PAGADO' || ep === 'PAGADA') {
-      estadoCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF375623' } };
-    } else if (ep.startsWith('EN ESPERA') || ep === 'PENDIENTE') {
-      estadoCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF7D6008' } };
-    } else {
-      estadoCell.font = { name: 'Arial', size: 10, color: { argb: 'FF666666' } };
+    for (const [estado, count] of groupMap.entries()) {
+      const sumRow = ws2.addRow([estado, count]);
+      sumRow.getCell(1).font = { name: 'Arial', size: 10 };
+      sumRow.getCell(2).font = { bold: true, name: 'Arial', size: 10 };
+      sumRow.getCell(2).alignment = { horizontal: 'center' };
     }
 
-    // Formato numérico para Valor
-    const valCell = row.getCell('valor');
-    if (!isNaN(valorNum)) {
-      valCell.numFmt = '#,##0';
-      valCell.alignment = { horizontal: 'right' };
-    }
-
-    row.height = 18;
-  });
-
-  // Resumen por estado de pago
-  ws2.addRow([]);
-  ws2.addRow([]);
-
-  const resumenRow = ws2.addRow(['Resumen Estado de Pago']);
-  resumenRow.getCell(1).font = { bold: true, name: 'Arial', size: 12, color: { argb: 'FF1F4E79' } };
-
-  ws2.addRow([]);
-
-  // Agrupar por estadoPago normalizado
-  const groupMap = new Map<string, number>();
-  for (const r of rows) {
-    const key = normalizeEstadoPago(r.estadoPago) || 'Sin información';
-    groupMap.set(key, (groupMap.get(key) ?? 0) + 1);
-  }
-
-  const summaryHeaderRow = ws2.addRow(['Estado', 'Cantidad']);
-  summaryHeaderRow.eachCell((cell) => {
-    cell.font = { bold: true, name: 'Arial', size: 10, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF375623' } };
-    cell.alignment = { horizontal: 'center' };
-  });
-  summaryHeaderRow.height = 18;
-
-  for (const [estado, count] of groupMap.entries()) {
-    const sumRow = ws2.addRow([estado, count]);
-    sumRow.getCell(1).font = { name: 'Arial', size: 10 };
-    sumRow.getCell(2).font = { bold: true, name: 'Arial', size: 10 };
-    sumRow.getCell(2).alignment = { horizontal: 'center' };
-  }
-
-  ws2.views = [{ state: 'frozen', ySplit: 1 }];
-  ws2.autoFilter = { from: 'A1', to: 'G1' };
+    ws2.views = [{ state: 'frozen', ySplit: 1 }];
+    ws2.autoFilter = { from: 'A1', to: 'G1' };
   }
 
   const buf = await wb.xlsx.writeBuffer();

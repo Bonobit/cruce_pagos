@@ -94,7 +94,8 @@
         <!-- TNS (múltiples archivos) -->
         <div class="upload-panel" id="panel-tns" ondragover="handleDragOver(event, 'tns')"
           ondragleave="handleDragLeave(event, 'tns')" ondrop="handleDrop(event, 'tns')">
-          <label class="title">🏦 Archivos TNS <span id="tns-count-badge" style="font-size:11px;font-weight:400;color:var(--blue);"></span></label>
+          <label class="title">🏦 Archivos TNS <span id="tns-count-badge"
+              style="font-size:11px;font-weight:400;color:var(--blue);"></span></label>
 
           <!-- Lista de archivos TNS cargados -->
           <div class="tns-file-list" id="tns-file-list"></div>
@@ -120,51 +121,50 @@
           <span class="spinner"></span>
           <span class="btn-label">🔀 Generar cruce</span>
         </button>
-        <button class="btn btn-success btn-excel" onclick="descargarExcel('cruce')" disabled>
-          ⬇️ Excel Cruce
-        </button>
-        <button class="btn btn-success btn-excel" onclick="descargarExcel('pagos')" disabled>
-          ⬇️ Excel Pagos
-        </button>
         <button class="btn btn-danger" onclick="resetModulo()">
           🗑️ Limpiar módulo
         </button>
       </div>
     </div>
 
-    <!-- ④ Results -->
-    <div class="card" id="results-card" style="display:none">
-      <h2>④ Resultado del Cruce</h2>
+    <!-- ④ Results: LETRAS -->
+    <div class="card" id="results-letras-card" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="margin:0;">④ Resultado del Cruce — 📄 Letras</h2>
+        <button class="btn btn-sm btn-success" onclick="descargarExcel('letras')" id="excel-letras-btn" disabled>
+          ⬇️ Excel Letras
+        </button>
+      </div>
 
       <!-- Warnings -->
-      <div class="warnings" id="warnings-box" style="display:none">
+      <div class="warnings" id="warnings-letras-box" style="display:none">
         <strong>⚠️ Avisos de detección automática:</strong>
-        <ul id="warnings-list"></ul>
+        <ul id="warnings-letras-list"></ul>
       </div>
 
       <!-- Column detection -->
       <div style="margin: 14px 0 18px;">
-        <div class="col-info" id="col-info"></div>
+        <div class="col-info" id="col-info-letras"></div>
       </div>
 
       <!-- Summary -->
-      <div class="summary" id="summary" style="margin-bottom:16px;"></div>
+      <div class="summary" id="summary-letras" style="margin-bottom:16px;"></div>
 
       <!-- Filter -->
       <div class="filter-bar" style="margin-bottom:14px;">
-        <input type="text" id="search-input" placeholder="🔍 Buscar por registro o valor..." oninput="filterTable()" />
-        <select id="filter-estado" onchange="filterTable()">
+        <input type="text" id="search-letras" placeholder="🔍 Buscar por registro o valor..."
+          oninput="filterTableLetras()" />
+        <select id="filter-estado-letras" onchange="filterTableLetras()">
           <option value="">Todos los estados</option>
           <option value="Ambos">✅ Ambos</option>
           <option value="Solo Gestor">🟡 Solo Gestor</option>
           <option value="Solo TNS">🟠 Solo TNS</option>
         </select>
-        <select id="filter-tipo" onchange="filterTable()">
+        <select id="filter-tipo-letras" onchange="filterTableLetras()">
           <option value="">Todos los tipos</option>
-          <option value="RECIBO">RECIBO</option>
           <option value="LETRA">LETRA</option>
         </select>
-        <select id="filter-estadopago" onchange="filterTable()">
+        <select id="filter-estadopago-letras" onchange="filterTableLetras()">
           <option value="">Todos los pagos</option>
           <option value="Pagado">✅ Pagado</option>
           <option value="En espera de pago">⏳ En espera</option>
@@ -174,24 +174,90 @@
 
       <!-- Table -->
       <div class="table-wrap">
-        <table id="result-table">
+        <table id="result-table-letras">
           <thead>
             <tr>
-              <th onclick="sortTable('registro')" style="cursor:pointer">Registro ↕</th>
-              <th onclick="sortTable('tipo')" style="cursor:pointer">Tipo ↕</th>
-              <th class="center" onclick="sortTable('fechaVto')" style="cursor:pointer">Fecha Vto ↕</th>
-              <th id="col-valor" class="center" onclick="sortTable('valor')" style="cursor:pointer">Valor ↕</th>
+              <th onclick="sortTableLetras('registro')" style="cursor:pointer">Registro ↕</th>
+              <th onclick="sortTableLetras('tipo')" style="cursor:pointer">Tipo ↕</th>
+              <th class="center" onclick="sortTableLetras('fechaVto')" style="cursor:pointer">Fecha Vto ↕</th>
+              <th class="center" onclick="sortTableLetras('valor')" style="cursor:pointer">Saldo ↕</th>
               <th class="center">Gestor</th>
               <th class="center">TNS</th>
-              <th onclick="sortTable('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
-              <th onclick="sortTable('estadoPago')" style="cursor:pointer">Pago ↕</th>
+              <th onclick="sortTableLetras('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
+              <th onclick="sortTableLetras('estadoPago')" style="cursor:pointer">Pago ↕</th>
             </tr>
           </thead>
-          <tbody id="result-body"></tbody>
+          <tbody id="result-body-letras"></tbody>
         </table>
       </div>
 
-      <div style="margin-top:10px; font-size:12px; color:var(--gray-400);" id="row-count"></div>
+      <div style="margin-top:10px; font-size:12px; color:var(--gray-400);" id="row-count-letras"></div>
+    </div>
+
+    <!-- ④ Results: PAGOS -->
+    <div class="card" id="results-pagos-card" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="margin:0;">④ Resultado del Cruce — 💳 Pagos</h2>
+        <button class="btn btn-sm btn-success" onclick="descargarExcel('pagos')" id="excel-pagos-btn" disabled>
+          ⬇️ Excel Pagos
+        </button>
+      </div>
+
+      <!-- Warnings -->
+      <div class="warnings" id="warnings-pagos-box" style="display:none">
+        <strong>⚠️ Avisos de detección automática:</strong>
+        <ul id="warnings-pagos-list"></ul>
+      </div>
+
+      <!-- Column detection -->
+      <div style="margin: 14px 0 18px;">
+        <div class="col-info" id="col-info-pagos"></div>
+      </div>
+
+      <!-- Summary -->
+      <div class="summary" id="summary-pagos" style="margin-bottom:16px;"></div>
+
+      <!-- Filter -->
+      <div class="filter-bar" style="margin-bottom:14px;">
+        <input type="text" id="search-pagos" placeholder="🔍 Buscar por registro o valor..."
+          oninput="filterTablePagos()" />
+        <select id="filter-estado-pagos" onchange="filterTablePagos()">
+          <option value="">Todos los estados</option>
+          <option value="Ambos">✅ Ambos</option>
+          <option value="Solo Gestor">🟡 Solo Gestor</option>
+          <option value="Solo TNS">🟠 Solo TNS</option>
+        </select>
+        <select id="filter-tipo-pagos" onchange="filterTablePagos()">
+          <option value="">Todos los tipos</option>
+          <option value="RECIBO">RECIBO</option>
+        </select>
+        <select id="filter-estadopago-pagos" onchange="filterTablePagos()">
+          <option value="">Todos los pagos</option>
+          <option value="Pagado">✅ Pagado</option>
+          <option value="En espera de pago">⏳ En espera</option>
+          <option value="Sin información">— Sin info</option>
+        </select>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrap">
+        <table id="result-table-pagos">
+          <thead>
+            <tr>
+              <th onclick="sortTablePagos('registro')" style="cursor:pointer">Registro ↕</th>
+              <th onclick="sortTablePagos('tipo')" style="cursor:pointer">Tipo ↕</th>
+              <th class="center" onclick="sortTablePagos('fechaVto')" style="cursor:pointer">Fecha Vto ↕</th>
+              <th class="center" onclick="sortTablePagos('valor')" style="cursor:pointer">Valor ↕</th>
+              <th class="center">Gestor</th>
+              <th class="center">TNS</th>
+              <th onclick="sortTablePagos('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
+            </tr>
+          </thead>
+          <tbody id="result-body-pagos"></tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:10px; font-size:12px; color:var(--gray-400);" id="row-count-pagos"></div>
     </div>
   </main>
 

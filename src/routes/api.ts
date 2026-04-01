@@ -193,7 +193,7 @@ router.get('/debug/columns', (_req: Request, res: Response) => {
   });
 });
 
-// ─── Cruce ALL (Letras + Pagos combined) ─────────────────────────────────────
+// ─── Cruce ALL (Letras + Pagos separated) ─────────────────────────────────────
 router.get('/cruce/all', (_req: Request, res: Response) => {
   const letrasStore = getStore('letras');
   const pagosStore = getStore('pagos');
@@ -216,30 +216,30 @@ router.get('/cruce/all', (_req: Request, res: Response) => {
     return;
   }
 
-  const warnings: string[] = [];
-  let combinedRows: import('../types').RegistroRow[] = [];
-
   try {
+    const result: any = {};
+
     if (hasLetrasAny) {
       const r = reconcile('letras', letrasStore.gestor, letrasStore.tns);
-      warnings.push(...r.warnings);
-      combinedRows = combinedRows.concat(r.rows);
+      result.letras = { rows: r.rows, warnings: r.warnings, columnInfo: r.columnInfo };
     }
     if (hasPagosAny) {
       const r = reconcile('pagos', pagosStore.gestor, pagosStore.tns);
-      warnings.push(...r.warnings);
-      combinedRows = combinedRows.concat(r.rows);
+      result.pagos = { rows: r.rows, warnings: r.warnings, columnInfo: r.columnInfo };
     }
-    logger.info({ totalRows: combinedRows.length, warnings: warnings.length }, 'Cruce ALL ejecutado');
-    res.json({ rows: combinedRows, warnings });
+
+    const totalRows = (result.letras?.rows.length || 0) + (result.pagos?.rows.length || 0);
+    const totalWarnings = (result.letras?.warnings.length || 0) + (result.pagos?.warnings.length || 0);
+    logger.info({ letrasRows: result.letras?.rows.length || 0, pagosRows: result.pagos?.rows.length || 0, totalWarnings }, 'Cruce ALL ejecutado');
+    res.json(result);
   } catch (err) {
     handleError(err, res);
   }
 });
 
-// ─── Cruce Excel Download ──────────────────────────────────────────────────────
+// ─── Cruce Excel Download (por módulo) ─────────────────────────────────────────
 router.get('/cruce/excel', async (req: Request, res: Response) => {
-  const type = (req.query.type as string) || 'cruce'; // 'cruce' or 'pagos'
+  const modulo = (req.query.modulo as string); // 'letras', 'pagos', o undefined para ambos
   const letrasStore = getStore('letras');
   const pagosStore = getStore('pagos');
 
@@ -251,25 +251,79 @@ router.get('/cruce/excel', async (req: Request, res: Response) => {
     return;
   }
 
-  if (hasLetrasAny && (!letrasStore.gestor || letrasStore.tns.length === 0)) {
-    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Letras.' } });
-    return;
-  }
-
-  if (hasPagosAny && (!pagosStore.gestor || pagosStore.tns.length === 0)) {
-    res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Pagos.' } });
-    return;
+  if (modulo === 'letras') {
+    if (!hasLetrasAny) {
+      res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'No hay datos de Letras para exportar.' } });
+      return;
+    }
+    if (!letrasStore.gestor || letrasStore.tns.length === 0) {
+      res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Letras.' } });
+      return;
+    }
+  } else if (modulo === 'pagos') {
+    if (!hasPagosAny) {
+      res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'No hay datos de Pagos para exportar.' } });
+      return;
+    }
+    if (!pagosStore.gestor || pagosStore.tns.length === 0) {
+      res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Pagos.' } });
+      return;
+    }
+  } else {
+    // Sin modulo especificado: validar ambos si hay datos
+    if (hasLetrasAny && (!letrasStore.gestor || letrasStore.tns.length === 0)) {
+      res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Letras.' } });
+      return;
+    }
+    if (hasPagosAny && (!pagosStore.gestor || pagosStore.tns.length === 0)) {
+      res.status(400).json({ error: { code: 'ERR_MISSING_FILES', message: 'Faltan archivos en el módulo Pagos.' } });
+      return;
+    }
   }
 
   try {
-    let combinedRows: import('../types').RegistroRow[] = [];
-    if (hasLetrasAny) combinedRows = combinedRows.concat(reconcile('letras', letrasStore.gestor, letrasStore.tns).rows);
-    if (hasPagosAny) combinedRows = combinedRows.concat(reconcile('pagos', pagosStore.gestor, pagosStore.tns).rows);
+    let rowsToExport: import('../types').RegistroRow[] = [];
+    let filename = '';
 
-    const buf = await generateExcel(combinedRows, type as 'cruce' | 'pagos');
-    const namePrefix = type === 'pagos' ? 'estado_pagos' : 'cruce_completo';
-    const filename = `${namePrefix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    logger.info({ rows: combinedRows.length, filename }, 'Excel exportado');
+    if (modulo === 'letras') {
+      rowsToExport = reconcile('letras', letrasStore.gestor, letrasStore.tns).rows;
+      filename = `cruce_letras_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    } else if (modulo === 'pagos') {
+      rowsToExport = reconcile('pagos', pagosStore.gestor, pagosStore.tns).rows;
+      filename = `cruce_pagos_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    } else {
+      // Ambos módulos
+      if (hasLetrasAny) rowsToExport = rowsToExport.concat(reconcile('letras', letrasStore.gestor, letrasStore.tns).rows);
+      if (hasPagosAny) rowsToExport = rowsToExport.concat(reconcile('pagos', pagosStore.gestor, pagosStore.tns).rows);
+      filename = `cruce_completo_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    }
+
+    const buf = await generateExcel(rowsToExport, 'cruce');
+    logger.info({ rows: rowsToExport.length, filename, modulo: modulo || 'ambos' }, 'Excel exportado');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buf);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// ─── Cruce Excel Download filtrado (por módulo y filas visibles) ─────────────
+router.post('/cruce/excel/filtered', async (req: Request, res: Response) => {
+  const { modulo, rows } = req.body as { modulo?: string; rows?: unknown };
+  if (!rows || !Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({ error: { code: 'ERR_MISSING_DATA', message: 'No se recibieron filas para exportar.' } });
+    return;
+  }
+
+  const filename = `cruce_${modulo || 'filtrado'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  try {
+    // Asumimos que cada fila cumple con la forma RegistroRow
+    const rowsToExport = rows as import('../types').RegistroRow[];
+    const buf = await generateExcel(rowsToExport, 'cruce');
+
+    logger.info({ rows: rowsToExport.length, filename, modulo: modulo || 'filtrado' }, 'Excel filtrado exportado');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buf);
