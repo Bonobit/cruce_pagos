@@ -73,7 +73,9 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
     // ══════════════════════════════════════════════════════════════════════
     const ws = wb.addWorksheet('Cruce Completo');
 
-    ws.columns = [
+    const hasEstadoPago = rows.some((r) => r.estadoPago && r.estadoPago.trim() !== '');
+
+    const columns: Partial<ExcelJS.Column>[] = [
       { header: 'Módulo', key: 'modulo', width: 10 },
       { header: 'Registro', key: 'registro', width: 28 },
       { header: 'Tipo', key: 'tipo', width: 12 },
@@ -82,8 +84,13 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
       { header: 'Gestor', key: 'gestor', width: 10 },
       { header: 'TNS', key: 'tns', width: 10 },
       { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
-      { header: 'Pago', key: 'estadoPago', width: 20 },
     ];
+
+    if (hasEstadoPago) {
+      columns.push({ header: 'Pago', key: 'estadoPago', width: 20 });
+    }
+
+    ws.columns = columns;
 
     styleHeader(ws.getRow(1));
 
@@ -148,7 +155,7 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
     });
 
     ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: 'A1', to: 'I1' };
+    ws.autoFilter = { from: 'A1', to: hasEstadoPago ? 'I1' : 'H1' };
   }
 
   if (type === 'pagos') {

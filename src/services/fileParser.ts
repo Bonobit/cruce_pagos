@@ -1,6 +1,19 @@
 import * as XLSX from 'xlsx';
 import { ParsedFile } from '../types';
 import { AppError } from '../utils/errors';
+import { parsePdfGestor } from './pdfParser';
+
+/**
+ * Unified entry point: routes PDF files to the PDF parser and everything else
+ * to the Excel/CSV parser. Drop-in replacement for parseFile.
+ */
+export async function parseFileOrPdf(buffer: Buffer, originalName: string): Promise<ParsedFile> {
+  const ext = originalName.split('.').pop()?.toLowerCase();
+  if (ext === 'pdf') {
+    return parsePdfGestor(buffer, originalName);
+  }
+  return parseFile(buffer, originalName);
+}
 
 /**
  * Normalizes a string: trim + uppercase + remove accents

@@ -83,7 +83,7 @@
           <div class="file-input-wrap">
             <label class="btn-file">
               Elegir archivo
-              <input type="file" id="file-gestor" accept=".xlsx,.xls,.csv" onchange="uploadFile('gestor', this)" />
+              <input type="file" id="file-gestor" accept=".xlsx,.xls,.csv,.pdf" onchange="uploadFile('gestor', this)" />
             </label>
             <span class="file-name" id="name-gestor">Sin archivo</span>
           </div>
@@ -251,6 +251,7 @@
               <th class="center">Gestor</th>
               <th class="center">TNS</th>
               <th onclick="sortTablePagos('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
+              <th onclick="sortTablePagos('estadoPago')" style="cursor:pointer">Pago ↕</th>
             </tr>
           </thead>
           <tbody id="result-body-pagos"></tbody>

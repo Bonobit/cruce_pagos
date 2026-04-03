@@ -442,7 +442,7 @@ function renderTableLetras(rows) {
 function renderTablePagos(rows) {
     const body = document.getElementById('result-body-pagos');
     if (rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
+        body.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
         document.getElementById('row-count-pagos').textContent = '';
         return;
     }
@@ -463,6 +463,7 @@ function renderTablePagos(rows) {
         <td class="center">${gx}</td>
         <td class="center">${tx}</td>
         <td><span class="badge-estado ${badgeCls}">${r.estadoConciliacion}</span></td>
+        <td>${estadoPagoBadge(r.estadoPago)}</td>
       </tr>`;
     }).join('');
 
@@ -476,7 +477,7 @@ function renderTablePagos(rows) {
       <tr style="background:#f5f5f5;border-top:2px solid var(--gray-300);font-weight:600;">
         <td colspan="3" style="text-align:right;padding-right:12px;">TOTAL:</td>
         <td class="center" style="font-weight:600;color:var(--blue-dark);background:#e8f4f8;">$ ${totalSaldo.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td colspan="3"></td>
+        <td colspan="4"></td>
       </tr>`;
 
     body.innerHTML = rowsHtml + totalRow;

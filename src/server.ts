@@ -3,8 +3,7 @@ import path from 'path';
 import cors from 'cors';
 import apiRouter from './routes/api';
 import { logger } from './utils/logger';
-import { spawn } from 'child_process';
-import open from 'open';
+import { exec } from 'child_process';
 import killPort from 'kill-port';
 
 const app = express();
@@ -24,8 +23,6 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-import { exec } from 'child_process';
-
 // Envolvemos el puerto en un try catch nativo a nivel de app listen si es necesario,
 // pero por ahora solo intentamos que abra el navegador si inicia con exito
 async function startServer() {
@@ -37,15 +34,20 @@ async function startServer() {
 
   const server = app.listen(PORT, () => {
     logger.info({ port: PORT }, 'Conciliación App iniciada');
+    console.log(`\n\x1b[32m[LISTO]\x1b[0m Aplicación ejecutándose en: http://localhost:${PORT}`);
+    console.log(`\x1b[33m[INFO]\x1b[0m Si el navegador no se abre automáticamente, por favor visita la URL anterior.\n`);
     
-    // Abrir el navegador forzando uso del explorador nativo de Windows (bulletproof para pkg)
-    if (process.platform === 'win32') {
-      exec(`explorer "http://localhost:${PORT}"`);
-    } else if (process.platform === 'darwin') {
-      exec(`open "http://localhost:${PORT}"`);
-    } else {
-      exec(`xdg-open "http://localhost:${PORT}"`);
-    }
+    // Abrir el navegador con un pequeño retraso para asegurar que el server esté listo
+    setTimeout(() => {
+      if (process.platform === 'win32') {
+        // 'start' con "" es la forma estándar de abrir URLs en Windows
+        exec(`start "" "http://localhost:${PORT}"`);
+      } else if (process.platform === 'darwin') {
+        exec(`open "http://localhost:${PORT}"`);
+      } else {
+        exec(`xdg-open "http://localhost:${PORT}"`);
+      }
+    }, 1000);
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {

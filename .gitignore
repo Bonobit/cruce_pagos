@@ -5,3 +5,9 @@ dist/
 uploads/
 *.log
 .github/
+debug_pdf.txt
+.gemini/
+bin/
+*.exe
+~$*
+.DS_Store

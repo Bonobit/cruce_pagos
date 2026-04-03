@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { Modulo, Store, StoreEntry } from '../types';
-import { parseFile } from '../services/fileParser';
+import { parseFile, parseFileOrPdf } from '../services/fileParser';
 import { reconcile } from '../services/reconciliation';
 import { generateExcel } from '../services/excelExport';
 import { logger } from '../utils/logger';
@@ -26,9 +26,10 @@ const upload = multer({
       'text/csv',
       'application/csv',
       'application/octet-stream',
+      'application/pdf',
     ];
     const ext = file.originalname.split('.').pop()?.toLowerCase();
-    if (allowed.includes(file.mimetype) || ['xls', 'xlsx', 'csv'].includes(ext ?? '')) {
+    if (allowed.includes(file.mimetype) || ['xls', 'xlsx', 'csv', 'pdf'].includes(ext ?? '')) {
       cb(null, true);
     } else {
       cb(new Error(`Tipo de archivo no soportado: ${file.mimetype}`));
@@ -70,7 +71,7 @@ function getStore(modulo: Modulo): StoreEntry {
 }
 
 // ─── Upload GESTOR ────────────────────────────────────────────────────────────
-router.post('/upload/gestor', uploadMiddleware, (req: Request, res: Response) => {
+router.post('/upload/gestor', uploadMiddleware, async (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
     res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido: pagos | letras' } });
@@ -81,7 +82,7 @@ router.post('/upload/gestor', uploadMiddleware, (req: Request, res: Response) =>
     return;
   }
   try {
-    const parsed = parseFile(req.file.buffer, req.file.originalname);
+    const parsed = await parseFileOrPdf(req.file.buffer, req.file.originalname);
     getStore(modulo).gestor = parsed;
     logger.info({ modulo, source: 'gestor', rows: parsed.rows.length }, 'Archivo cargado');
     res.json({
