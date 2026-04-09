@@ -184,6 +184,7 @@
               <th class="center">Gestor</th>
               <th class="center">TNS</th>
               <th onclick="sortTableLetras('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
+              <th onclick="sortTableLetras('mora')" style="cursor:pointer">Mora ↕</th>
               <th onclick="sortTableLetras('estadoPago')" style="cursor:pointer">Pago ↕</th>
             </tr>
           </thead>
@@ -231,12 +232,7 @@
           <option value="">Todos los tipos</option>
           <option value="RECIBO">RECIBO</option>
         </select>
-        <select id="filter-estadopago-pagos" onchange="filterTablePagos()">
-          <option value="">Todos los pagos</option>
-          <option value="Pagado">✅ Pagado</option>
-          <option value="En espera de pago">⏳ En espera</option>
-          <option value="Sin información">— Sin info</option>
-        </select>
+
       </div>
 
       <!-- Table -->
@@ -246,12 +242,13 @@
             <tr>
               <th onclick="sortTablePagos('registro')" style="cursor:pointer">Registro ↕</th>
               <th onclick="sortTablePagos('tipo')" style="cursor:pointer">Tipo ↕</th>
-              <th class="center" onclick="sortTablePagos('fechaVto')" style="cursor:pointer">Fecha Vto ↕</th>
+              <th class="center" onclick="sortTablePagos('fechaCance')" style="cursor:pointer">Fecha Cancelación ↕</th>
+              <th class="center" onclick="sortTablePagos('fechaVto')" style="cursor:pointer">Fecha De Pago ↕</th>
               <th class="center" onclick="sortTablePagos('valor')" style="cursor:pointer">Valor ↕</th>
               <th class="center">Gestor</th>
               <th class="center">TNS</th>
               <th onclick="sortTablePagos('estadoConciliacion')" style="cursor:pointer">Estado ↕</th>
-              <th onclick="sortTablePagos('estadoPago')" style="cursor:pointer">Pago ↕</th>
+
             </tr>
           </thead>
           <tbody id="result-body-pagos"></tbody>

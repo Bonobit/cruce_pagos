@@ -324,22 +324,16 @@ function renderResults(data) {
         const ambos = rows.filter(r => r.estadoConciliacion === 'Ambos').length;
         const sg = rows.filter(r => r.estadoConciliacion === 'Solo Gestor').length;
         const st = rows.filter(r => r.estadoConciliacion === 'Solo TNS').length;
-        const pagados = rows.filter(r => normalizeEstadoPagoFront(r.estadoPago) === 'Pagado').length;
-        const espera = rows.filter(r => normalizeEstadoPagoFront(r.estadoPago) === 'En espera de pago').length;
-
         document.getElementById('summary-pagos').innerHTML = `
         <span class="chip chip-total">📊 Total: ${rows.length}</span>
         <span class="chip chip-ambos">✅ Ambos: ${ambos}</span>
         <span class="chip chip-gestor">🟡 Solo Gestor: ${sg}</span>
         <span class="chip chip-tns">🟠 Solo TNS: ${st}</span>
-        ${pagados > 0 ? `<span class="chip" style="background:#c6e0b4;color:#375623;">💰 Pagados: ${pagados}</span>` : ''}
-        ${espera > 0 ? `<span class="chip" style="background:#fff2cc;color:#7d6008;">⏳ En espera: ${espera}</span>` : ''}
       `;
 
         document.getElementById('search-pagos').value = '';
         document.getElementById('filter-estado-pagos').value = '';
         document.getElementById('filter-tipo-pagos').value = '';
-        document.getElementById('filter-estadopago-pagos').value = '';
 
         // Reset ordenamiento al estado por defecto
         sortKeyPagos = 'estadoConciliacion';
@@ -395,7 +389,7 @@ function estadoPagoBadge(raw) {
 function renderTableLetras(rows) {
     const body = document.getElementById('result-body-letras');
     if (rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
+        body.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
         document.getElementById('row-count-letras').textContent = '';
         return;
     }
@@ -416,6 +410,7 @@ function renderTableLetras(rows) {
         <td class="center">${gx}</td>
         <td class="center">${tx}</td>
         <td><span class="badge-estado ${badgeCls}">${r.estadoConciliacion}</span></td>
+        <td class="center" style="color:var(--red-dark);">${formatValor(r.mora)}</td>
         <td>${estadoPagoBadge(r.estadoPago)}</td>
       </tr>`;
     }).join('');
@@ -430,13 +425,13 @@ function renderTableLetras(rows) {
       <tr style="background:#f5f5f5;border-top:2px solid var(--gray-300);font-weight:600;">
         <td colspan="3" style="text-align:right;padding-right:12px;">TOTAL:</td>
         <td class="center" style="font-weight:600;color:var(--blue-dark);background:#e8f4f8;">$ ${totalSaldo.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td colspan="4"></td>
+        <td colspan="5"></td>
       </tr>`;
 
     body.innerHTML = rowsHtml + totalRow;
 
     document.getElementById('row-count-letras').textContent =
-        `Mostrando ${rows.length} de ${dataLetras.length} registros`;
+        `Mostrando ${rows.length} de ${dataLetras.length} registros (Mora incluida)`;
 }
 
 function renderTablePagos(rows) {
@@ -458,12 +453,12 @@ function renderTablePagos(rows) {
       <tr class="${cls}">
         <td><code style="font-size:12px">${esc(r.registro)}</code></td>
         <td>${esc(r.tipo)}</td>
+        <td class="center">${esc(r.fechaCance)}</td>
         <td class="center">${esc(r.fechaVto)}</td>
         <td class="center" style="font-weight:600;color:var(--blue-dark);">${formatValor(r.valor)}</td>
         <td class="center">${gx}</td>
         <td class="center">${tx}</td>
         <td><span class="badge-estado ${badgeCls}">${r.estadoConciliacion}</span></td>
-        <td>${estadoPagoBadge(r.estadoPago)}</td>
       </tr>`;
     }).join('');
 
@@ -475,9 +470,9 @@ function renderTablePagos(rows) {
 
     const totalRow = `
       <tr style="background:#f5f5f5;border-top:2px solid var(--gray-300);font-weight:600;">
-        <td colspan="3" style="text-align:right;padding-right:12px;">TOTAL:</td>
+        <td colspan="4" style="text-align:right;padding-right:12px;">TOTAL:</td>
         <td class="center" style="font-weight:600;color:var(--blue-dark);background:#e8f4f8;">$ ${totalSaldo.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td colspan="4"></td>
+        <td colspan="3"></td>
       </tr>`;
 
     body.innerHTML = rowsHtml + totalRow;
@@ -517,7 +512,6 @@ function filterTablePagos() {
     const q = document.getElementById('search-pagos').value.toUpperCase().trim();
     const estado = document.getElementById('filter-estado-pagos').value;
     const tipo = document.getElementById('filter-tipo-pagos').value;
-    const estadoPago = document.getElementById('filter-estadopago-pagos').value;
 
     let filtered = dataPagos.filter(r => {
         const matchQ = !q
@@ -526,9 +520,7 @@ function filterTablePagos() {
             || (r.valor && String(r.valor).includes(q));
         const matchE = !estado || r.estadoConciliacion === estado;
         const matchT = !tipo || r.tipo === tipo;
-        const matchP = !estadoPago || normalizeEstadoPagoFront(r.estadoPago) === estadoPago
-            || (estadoPago === 'Sin información' && !normalizeEstadoPagoFront(r.estadoPago));
-        return matchQ && matchE && matchT && matchP;
+        return matchQ && matchE && matchT;
     });
 
     // Ordenar por defecto por estadoConciliacion, o por el ordenamiento seleccionado por el usuario

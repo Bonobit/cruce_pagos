@@ -93,11 +93,12 @@ function parsePagosPendientes(lines: string[]): ParsedFile {
 
     const tokens = raw.split(/\s{2,}|\t/).map(t => t.trim()).filter(Boolean);
     if (tokens.length >= 4) {
-      const [fechaVto, saldo, numero, mora, ...rest] = tokens;
+      const [fechaCance, fechaVto, saldo, numero, mora, ...rest] = tokens;
       if (DATE_RE.test(fechaVto)) {
         const estado = rest.length > 0 ? rest[rest.length - 1] : (mora && !MONEY_RE.test(mora) ? mora : '');
         const moraVal = mora && MONEY_RE.test(mora) ? cleanMoney(mora) : '$0';
         rows.push({
+          'FECHA CANCELACION': cleanDate(fechaCance),
           'FECHA VENCIMIENTO': cleanDate(fechaVto),
           'SALDO': cleanMoney(saldo),
           'NUMERO': numero.trim(),
@@ -114,6 +115,7 @@ function parsePagosPendientes(lines: string[]): ParsedFile {
       const numIdx = parts.findIndex(p => /^[A-Z]{2,}/i.test(p) && p.length >= 3);
       if (numIdx > 0) {
         rows.push({
+          'FECHA CANCELACION': cleanDate(parts[0]),
           'FECHA VENCIMIENTO': cleanDate(parts[0]),
           'SALDO': cleanMoney(parts.slice(1, numIdx).join('')),
           'NUMERO': parts[numIdx],

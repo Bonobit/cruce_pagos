@@ -79,10 +79,12 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
       { header: 'Módulo', key: 'modulo', width: 10 },
       { header: 'Registro', key: 'registro', width: 28 },
       { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Fecha Cancelación', key: 'fechaCance', width: 16 },
       { header: 'Fecha Vto', key: 'fechaVto', width: 16 },
       { header: 'Valor', key: 'valor', width: 18 },
       { header: 'Gestor', key: 'gestor', width: 10 },
       { header: 'TNS', key: 'tns', width: 10 },
+      { header: 'Mora', key: 'mora', width: 12 },
       { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
     ];
 
@@ -100,10 +102,12 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
         modulo: r.modulo,
         registro: r.registro,
         tipo: r.tipo,
+        fechaCance: r.fechaCance,
         fechaVto: r.fechaVto,
         valor: !isNaN(valorNum) ? valorNum : (r.valor || ''),
         gestor: r.gestor ? 'X' : '',
         tns: r.tns ? 'X' : '',
+        mora: r.mora || '',
         estadoConciliacion: r.estadoConciliacion,
         estadoPago: normalizeEstadoPago(r.estadoPago),
       });
@@ -168,8 +172,10 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
       { header: 'Módulo', key: 'modulo', width: 10 },
       { header: 'Registro', key: 'registro', width: 28 },
       { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Fecha Cancelación', key: 'fechaCance', width: 16 },
       { header: 'Fecha Vto', key: 'fechaVto', width: 16 },
       { header: 'Valor', key: 'valor', width: 18 },
+      { header: 'Mora', key: 'mora', width: 12 },
       { header: 'Estado de Pago', key: 'estadoPago', width: 24 },
       { header: 'Estado Conciliación', key: 'estadoConciliacion', width: 22 },
     ];
@@ -185,8 +191,10 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
         modulo: r.modulo,
         registro: r.registro,
         tipo: r.tipo,
+        fechaCance: r.fechaCance,
         fechaVto: r.fechaVto,
         valor: !isNaN(valorNum) ? valorNum : (r.valor || ''),
+        mora: r.mora || '',
         estadoPago: estadoPagoNorm || 'Sin información',
         estadoConciliacion: r.estadoConciliacion,
       });

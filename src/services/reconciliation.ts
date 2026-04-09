@@ -13,24 +13,30 @@ export interface ReconciliationResult {
 
 interface GestorEntry {
   key: string;
+  fechaCance: string;
   fechaVto: string;
   tipo: string;
   valor: string;
+  mora: string;
   estadoPago: string;
 }
 
 interface TnsEntry {
   key: string;
+  fechaCance: string;
   fechaVto: string;
   tipo: string;
   valor: string;
+  mora: string;
   estadoPago: string;
 }
 
 type ModuleAliases = {
   registro: string[];
+  fechaCance: string[];
   fechaVto: string[];
   valor?: string[];
+  mora?: string[];
   estadoPago?: string[];
 };
 
@@ -41,10 +47,12 @@ function detectSourceColumns(
   aliases: ModuleAliases,
   sourceName: string,
   warnings: string[]
-): { registroCol: string; fechaCol: string | null; valorCol: string | null; estadoPagoCol: string | null } {
+): { registroCol: string; fechaCanceCol: string | null; fechaVtoCol: string | null; valorCol: string | null; moraCol: string | null; estadoPagoCol: string | null } {
   const registroCol = findColumn(file.columns, aliases.registro);
-  const fechaCol = findColumn(file.columns, aliases.fechaVto);
+  const fechaCanceCol = findColumn(file.columns, aliases.fechaCance);
+  const fechaVtoCol = findColumn(file.columns, aliases.fechaVto);
   const valorCol = aliases.valor ? findColumn(file.columns, aliases.valor) : null;
+  const moraCol = aliases.mora ? findColumn(file.columns, aliases.mora) : null;
   const estadoPagoCol = aliases.estadoPago ? findColumn(file.columns, aliases.estadoPago) : null;
 
   if (!registroCol) {
@@ -54,11 +62,11 @@ function detectSourceColumns(
     );
   }
 
-  if (!fechaCol) {
-    warnings.push(`[${sourceName}]: No se encontró columna de fecha. La fecha de vencimiento quedará vacía.`);
+  if (!fechaVtoCol && !fechaCanceCol) {
+    warnings.push(`[${sourceName}]: No se encontró columna de fecha. Las fechas quedarán vacías.`);
   }
 
-  return { registroCol, fechaCol, valorCol, estadoPagoCol };
+  return { registroCol, fechaCanceCol, fechaVtoCol, valorCol, moraCol, estadoPagoCol };
 }
 
 // ─── TNS row filtering ───────────────────────────────────────────────────────
@@ -78,8 +86,10 @@ function filterTnsRows(rows: Record<string, string>[], modulo: Modulo): Record<s
 function buildGestorEntries(
   parsed: ParsedFile,
   registroCol: string,
+  fechaCanceCol: string | null,
   fechaVtoCol: string | null,
   valorCol: string | null,
+  moraCol: string | null,
   estadoPagoCol: string | null,
   tipoDefault: string
 ): GestorEntry[] {
@@ -92,12 +102,18 @@ function buildGestorEntries(
     if (reg === normalizedColName) continue;
     if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
 
-    const fechaRaw = fechaVtoCol ? row[fechaVtoCol] : '';
-    const fecha = formatDate(fechaRaw || '');
+    const rawCance = fechaCanceCol ? row[fechaCanceCol] : '';
+    const rawVto = fechaVtoCol ? row[fechaVtoCol] : '';
+
+    // Si solo hay una fecha disponible, usarla para ambas
+    const finalCance = formatDate(rawCance || rawVto || '');
+    const finalVto = formatDate(rawVto || rawCance || '');
+
     const valor = valorCol ? (row[valorCol] || '') : '';
+    const mora = moraCol ? (row[moraCol] || '') : '';
     const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
 
-    entries.push({ key: reg, fechaVto: fecha, tipo: tipoDefault, valor, estadoPago });
+    entries.push({ key: reg, fechaCance: finalCance, fechaVto: finalVto, tipo: tipoDefault, valor, mora, estadoPago });
   }
 
   return entries;
@@ -109,8 +125,10 @@ function buildGestorEntries(
 function buildTnsEntries(
   rows: Record<string, string>[],
   registroCol: string,
+  fechaCanceCol: string | null,
   fechaVtoCol: string | null,
   valorCol: string | null,
+  moraCol: string | null,
   estadoPagoCol: string | null,
   tipoDefault: string
 ): TnsEntry[] {
@@ -123,12 +141,17 @@ function buildTnsEntries(
     if (reg === normalizedColName) continue;
     if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
 
-    const fechaRaw = fechaVtoCol ? row[fechaVtoCol] : '';
-    const fecha = formatDate(fechaRaw || '');
+    const rawCance = fechaCanceCol ? row[fechaCanceCol] : '';
+    const rawVto = fechaVtoCol ? row[fechaVtoCol] : '';
+
+    const finalCance = formatDate(rawCance || rawVto || '');
+    const finalVto = formatDate(rawVto || rawCance || '');
+
     const valor = valorCol ? (row[valorCol] || '') : '';
+    const mora = moraCol ? (row[moraCol] || '') : '';
     const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
 
-    entries.push({ key: reg, fechaVto: fecha, tipo: tipoDefault, valor, estadoPago });
+    entries.push({ key: reg, fechaCance: finalCance, fechaVto: finalVto, tipo: tipoDefault, valor, mora, estadoPago });
   }
 
   return entries;
@@ -167,24 +190,28 @@ function buildMatchedRows(
       rows.push({
         registro: tnsEntry.key,
         tipo: ge.tipo,
+        fechaCance: ge.fechaCance || tnsEntry.fechaCance || '',
         fechaVto: ge.fechaVto || tnsEntry.fechaVto || '',
         gestor: true,
         tns: true,
         estadoConciliacion: 'Ambos',
         modulo,
         valor: ge.valor || undefined,
+        mora: ge.mora || undefined,
         estadoPago: estadoPago || undefined,
       });
     } else {
       rows.push({
         registro: tnsEntry.key,
         tipo: tnsEntry.tipo,
+        fechaCance: tnsEntry.fechaCance || '',
         fechaVto: tnsEntry.fechaVto,
         gestor: false,
         tns: true,
         estadoConciliacion: 'Solo TNS',
         modulo,
         valor: tnsEntry.valor || undefined,
+        mora: tnsEntry.mora || undefined,
         estadoPago: tnsEntry.estadoPago || undefined,
       });
     }
@@ -197,12 +224,14 @@ function buildMatchedRows(
       rows.push({
         registro: ge.key,
         tipo: ge.tipo,
+        fechaCance: ge.fechaCance || '',
         fechaVto: ge.fechaVto,
         gestor: true,
         tns: false,
         estadoConciliacion: 'Solo Gestor',
         modulo,
         valor: ge.valor || undefined,
+        mora: ge.mora || undefined,
         estadoPago: ge.estadoPago || undefined,
       });
     }
@@ -224,18 +253,20 @@ export function reconcile(
 
   // ---- GESTOR ----
   let gestorRegistroCol: string | null = null;
-  let gestorFechaCol: string | null = null;
+  let gestorFechaVtoCol: string | null = null;
   let gestorEntries: GestorEntry[] = [];
 
   if (gestorFile) {
     const d = detectSourceColumns(gestorFile, aliases, 'GESTOR', warnings);
     gestorRegistroCol = d.registroCol;
-    gestorFechaCol = d.fechaCol;
+    gestorFechaVtoCol = d.fechaVtoCol;
     gestorEntries = buildGestorEntries(
       gestorFile,
       d.registroCol,
-      d.fechaCol,
+      d.fechaCanceCol,
+      d.fechaVtoCol,
       d.valorCol,
+      d.moraCol,
       d.estadoPagoCol,
       tipoDefault
     );
@@ -243,20 +274,22 @@ export function reconcile(
 
   // ---- TNS (merge de todos los archivos) ----
   let tnsRegistroCol: string | null = null;
-  let tnsFechaCol: string | null = null;
+  let tnsFechaVtoCol: string | null = null;
   let tnsEntries: TnsEntry[] = [];
 
   for (const tnsFile of tnsFiles) {
     const d = detectSourceColumns(tnsFile, aliases, 'TNS', warnings);
     if (!tnsRegistroCol) tnsRegistroCol = d.registroCol;
-    if (!tnsFechaCol) tnsFechaCol = d.fechaCol;
+    if (!tnsFechaVtoCol) tnsFechaVtoCol = d.fechaVtoCol;
 
     const filteredRows = filterTnsRows(tnsFile.rows, modulo);
     const fileEntries = buildTnsEntries(
       filteredRows,
       d.registroCol,
-      d.fechaCol,
+      d.fechaCanceCol,
+      d.fechaVtoCol,
       d.valorCol,
+      d.moraCol,
       d.estadoPagoCol,
       tipoDefault
     );
@@ -268,8 +301,8 @@ export function reconcile(
   return {
     rows,
     columnInfo: {
-      gestor: { registro: gestorRegistroCol, fechaVto: gestorFechaCol },
-      tns: { registro: tnsRegistroCol, fechaVto: tnsFechaCol },
+      gestor: { registro: gestorRegistroCol, fechaVto: gestorFechaVtoCol },
+      tns: { registro: tnsRegistroCol, fechaVto: tnsFechaVtoCol },
     },
     warnings,
   };
