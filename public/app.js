@@ -163,7 +163,7 @@ function handleDrop(e, source) {
         const files = Array.from(e.dataTransfer.files);
         files.forEach(file => {
             const ext = file.name.split('.').pop()?.toLowerCase();
-            if (!['xlsx', 'xls', 'csv'].includes(ext ?? '')) {
+            if (!['xlsx', 'xls', 'csv', 'pdf'].includes(ext ?? '')) {
                 toast(`Archivo no soportado: .${ext}. Usa .xlsx, .xls o .csv`, 'error');
                 return;
             }
@@ -173,7 +173,7 @@ function handleDrop(e, source) {
         const file = e.dataTransfer.files[0];
         if (!file) return;
         const ext = file.name.split('.').pop()?.toLowerCase();
-        if (!['xlsx', 'xls', 'csv'].includes(ext ?? '')) {
+        if (!['xlsx', 'xls', 'csv', 'pdf'].includes(ext ?? '')) {
             toast(`Archivo no soportado: .${ext}. Usa .xlsx, .xls o .csv`, 'error');
             return;
         }
@@ -296,7 +296,6 @@ function renderResults(data) {
 
         document.getElementById('search-letras').value = '';
         document.getElementById('filter-estado-letras').value = '';
-        document.getElementById('filter-tipo-letras').value = '';
         document.getElementById('filter-estadopago-letras').value = '';
 
         // Reset ordenamiento al estado por defecto
@@ -333,7 +332,6 @@ function renderResults(data) {
 
         document.getElementById('search-pagos').value = '';
         document.getElementById('filter-estado-pagos').value = '';
-        document.getElementById('filter-tipo-pagos').value = '';
 
         // Reset ordenamiento al estado por defecto
         sortKeyPagos = 'estadoConciliacion';
@@ -389,7 +387,7 @@ function estadoPagoBadge(raw) {
 function renderTableLetras(rows) {
     const body = document.getElementById('result-body-letras');
     if (rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
+        body.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
         document.getElementById('row-count-letras').textContent = '';
         return;
     }
@@ -404,7 +402,6 @@ function renderTableLetras(rows) {
         return `
       <tr class="${cls}">
         <td><code style="font-size:12px">${esc(r.registro)}</code></td>
-        <td>${esc(r.tipo)}</td>
         <td class="center">${esc(r.fechaVto)}</td>
         <td class="center" style="font-weight:600;color:var(--blue-dark);">${formatValor(r.valor)}</td>
         <td class="center">${gx}</td>
@@ -415,29 +412,26 @@ function renderTableLetras(rows) {
       </tr>`;
     }).join('');
 
-    // Calcular total del saldo
-    const totalSaldo = rows.reduce((sum, r) => {
-        const num = parseFloat(String(r.valor).replace(/[^0-9.-]/g, '')) || 0;
-        return sum + num;
-    }, 0);
+    body.innerHTML = rowsHtml;
 
-    const totalRow = `
-      <tr style="background:#f5f5f5;border-top:2px solid var(--gray-300);font-weight:600;">
-        <td colspan="3" style="text-align:right;padding-right:12px;">TOTAL:</td>
-        <td class="center" style="font-weight:600;color:var(--blue-dark);background:#e8f4f8;">$ ${totalSaldo.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td colspan="5"></td>
-      </tr>`;
+    // Totales globales letras (siempre sobre dataLetras completo)
+    const sumarLetras = (estadoPago) => dataLetras
+        .filter(r => normalizeEstadoPagoFront(r.estadoPago) === estadoPago)
+        .reduce((sum, r) => sum + (parseFloat(String(r.valor).replace(/[^0-9.-]/g, '')) || 0), 0);
 
-    body.innerHTML = rowsHtml + totalRow;
+    const fmtL = (n) => '$ ' + n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    document.getElementById('total-pagados').textContent = fmtL(sumarLetras('Pagado'));
+    document.getElementById('total-espera').textContent = fmtL(sumarLetras('En espera de pago'));
 
     document.getElementById('row-count-letras').textContent =
-        `Mostrando ${rows.length} de ${dataLetras.length} registros (Mora incluida)`;
+        `Mostrando ${rows.length} de ${dataLetras.length} registros`;
 }
 
 function renderTablePagos(rows) {
     const body = document.getElementById('result-body-pagos');
     if (rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
+        body.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="icon">🔍</div><p>Sin resultados con los filtros aplicados.</p></div></td></tr>`;
         document.getElementById('row-count-pagos').textContent = '';
         return;
     }
@@ -452,7 +446,6 @@ function renderTablePagos(rows) {
         return `
       <tr class="${cls}">
         <td><code style="font-size:12px">${esc(r.registro)}</code></td>
-        <td>${esc(r.tipo)}</td>
         <td class="center">${esc(r.fechaCance)}</td>
         <td class="center">${esc(r.fechaVto)}</td>
         <td class="center" style="font-weight:600;color:var(--blue-dark);">${formatValor(r.valor)}</td>
@@ -462,20 +455,18 @@ function renderTablePagos(rows) {
       </tr>`;
     }).join('');
 
-    // Calcular total del saldo
-    const totalSaldo = rows.reduce((sum, r) => {
-        const num = parseFloat(String(r.valor).replace(/[^0-9.-]/g, '')) || 0;
-        return sum + num;
-    }, 0);
+    body.innerHTML = rowsHtml;
 
-    const totalRow = `
-      <tr style="background:#f5f5f5;border-top:2px solid var(--gray-300);font-weight:600;">
-        <td colspan="4" style="text-align:right;padding-right:12px;">TOTAL:</td>
-        <td class="center" style="font-weight:600;color:var(--blue-dark);background:#e8f4f8;">$ ${totalSaldo.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td colspan="3"></td>
-      </tr>`;
+    // Totales globales (siempre sobre dataPagos completo, ignorando filtros)
+    const sumar = (estado) => dataPagos
+        .filter(r => r.estadoConciliacion === estado)
+        .reduce((sum, r) => sum + (parseFloat(String(r.valor).replace(/[^0-9.-]/g, '')) || 0), 0);
 
-    body.innerHTML = rowsHtml + totalRow;
+    const fmt = (n) => '$ ' + n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    document.getElementById('total-pagos-gestor').textContent = fmt(sumar('Solo Gestor'));
+    document.getElementById('total-pagos-tns').textContent = fmt(sumar('Solo TNS'));
+    document.getElementById('total-pagos-ambos').textContent = fmt(sumar('Ambos'));
 
     document.getElementById('row-count-pagos').textContent =
         `Mostrando ${rows.length} de ${dataPagos.length} registros`;
@@ -487,19 +478,16 @@ function renderTablePagos(rows) {
 function filterTableLetras() {
     const q = document.getElementById('search-letras').value.toUpperCase().trim();
     const estado = document.getElementById('filter-estado-letras').value;
-    const tipo = document.getElementById('filter-tipo-letras').value;
     const estadoPago = document.getElementById('filter-estadopago-letras').value;
 
     let filtered = dataLetras.filter(r => {
         const matchQ = !q
             || r.registro.toUpperCase().includes(q)
-            || r.tipo.toUpperCase().includes(q)
             || (r.valor && String(r.valor).includes(q));
         const matchE = !estado || r.estadoConciliacion === estado;
-        const matchT = !tipo || r.tipo === tipo;
         const matchP = !estadoPago || normalizeEstadoPagoFront(r.estadoPago) === estadoPago
             || (estadoPago === 'Sin información' && !normalizeEstadoPagoFront(r.estadoPago));
-        return matchQ && matchE && matchT && matchP;
+        return matchQ && matchE && matchP;
     });
 
     // Ordenar por defecto por estadoConciliacion, o por el ordenamiento seleccionado por el usuario
@@ -511,16 +499,13 @@ function filterTableLetras() {
 function filterTablePagos() {
     const q = document.getElementById('search-pagos').value.toUpperCase().trim();
     const estado = document.getElementById('filter-estado-pagos').value;
-    const tipo = document.getElementById('filter-tipo-pagos').value;
 
     let filtered = dataPagos.filter(r => {
         const matchQ = !q
             || r.registro.toUpperCase().includes(q)
-            || r.tipo.toUpperCase().includes(q)
             || (r.valor && String(r.valor).includes(q));
         const matchE = !estado || r.estadoConciliacion === estado;
-        const matchT = !tipo || r.tipo === tipo;
-        return matchQ && matchE && matchT;
+        return matchQ && matchE;
     });
 
     // Ordenar por defecto por estadoConciliacion, o por el ordenamiento seleccionado por el usuario

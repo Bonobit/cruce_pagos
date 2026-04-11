@@ -88,7 +88,7 @@
             <span class="file-name" id="name-gestor">Sin archivo</span>
           </div>
           <div class="drop-hint">📂 o arrastra el archivo aquí</div>
-          <div class="upload-info" id="info-gestor"></div>
+          <div class="upload-info" id="info-gestor" accept=".xlsx,.xls,.csv,.pdf"></div>
         </div>
 
         <!-- TNS (múltiples archivos) -->
@@ -160,10 +160,6 @@
           <option value="Solo Gestor">🟡 Solo Gestor</option>
           <option value="Solo TNS">🟠 Solo TNS</option>
         </select>
-        <select id="filter-tipo-letras" onchange="filterTableLetras()">
-          <option value="">Todos los tipos</option>
-          <option value="LETRA">LETRA</option>
-        </select>
         <select id="filter-estadopago-letras" onchange="filterTableLetras()">
           <option value="">Todos los pagos</option>
           <option value="Pagado">✅ Pagado</option>
@@ -178,7 +174,6 @@
           <thead>
             <tr>
               <th onclick="sortTableLetras('registro')" style="cursor:pointer">Registro ↕</th>
-              <th onclick="sortTableLetras('tipo')" style="cursor:pointer">Tipo ↕</th>
               <th class="center" onclick="sortTableLetras('fechaVto')" style="cursor:pointer">Fecha Vto ↕</th>
               <th class="center" onclick="sortTableLetras('valor')" style="cursor:pointer">Saldo ↕</th>
               <th class="center">Gestor</th>
@@ -193,6 +188,11 @@
       </div>
 
       <div style="margin-top:10px; font-size:12px; color:var(--gray-400);" id="row-count-letras"></div>
+
+      <div class="totales" id="totales-letras">
+        <h2>Total Pagados: <strong id="total-pagados">—</strong></h2>
+        <h2>Total En espera: <strong id="total-espera">—</strong></h2>
+      </div>
     </div>
 
     <!-- ④ Results: PAGOS -->
@@ -228,11 +228,6 @@
           <option value="Solo Gestor">🟡 Solo Gestor</option>
           <option value="Solo TNS">🟠 Solo TNS</option>
         </select>
-        <select id="filter-tipo-pagos" onchange="filterTablePagos()">
-          <option value="">Todos los tipos</option>
-          <option value="RECIBO">RECIBO</option>
-        </select>
-
       </div>
 
       <!-- Table -->
@@ -241,7 +236,6 @@
           <thead>
             <tr>
               <th onclick="sortTablePagos('registro')" style="cursor:pointer">Registro ↕</th>
-              <th onclick="sortTablePagos('tipo')" style="cursor:pointer">Tipo ↕</th>
               <th class="center" onclick="sortTablePagos('fechaCance')" style="cursor:pointer">Fecha Cancelación ↕</th>
               <th class="center" onclick="sortTablePagos('fechaVto')" style="cursor:pointer">Fecha De Pago ↕</th>
               <th class="center" onclick="sortTablePagos('valor')" style="cursor:pointer">Valor ↕</th>
@@ -256,6 +250,12 @@
       </div>
 
       <div style="margin-top:10px; font-size:12px; color:var(--gray-400);" id="row-count-pagos"></div>
+
+      <div class="totales" id='totales-pagos'>
+        <h2>Total Solo TNS: <strong id="total-pagos-tns">—</strong></h2>
+        <h2>Total Solo Gestor: <strong id="total-pagos-gestor">—</strong></h2>
+        <h2>Total Ambos: <strong id="total-pagos-ambos">—</strong></h2>
+      </div>
     </div>
   </main>
 
