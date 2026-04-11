@@ -9,8 +9,105 @@ function cleanMoney(val: string): string {
   return val.trim().replace(/\./g, '').replace(/,/g, '.');
 }
 
+function cleanMoneyTns(val: string): string {
+  // TNS format is 1,000.00
+  return val.trim().replace(/,/g, '');
+}
+
 function cleanDate(val: string): string {
   return val.trim();
+}
+
+// ─── Parser: TNS Libro Auxiliar ──────────────────────────────────────────────
+// Columnas: FECHA | COMPROBANTE/TIPO DCTO | TERCERO/DETALLE | DEBE | HABER
+function parsePdfLibroAuxiliar(lines: string[]): ParsedFile {
+  const columns = ['FECHA', 'COMPROBANTE/TIPO DCTO', 'TERCERO/DETALLE', 'DEBE', 'HABER'];
+  const rows: Record<string, string>[] = [];
+  
+  const DATE_RE = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const tokens = line.split(/\s+/).map(t => t.trim()).filter(Boolean);
+    
+    if (tokens.length >= 4 && DATE_RE.test(tokens[0])) {
+      const fecha = tokens[0];
+      const comprobante = tokens[1];
+      
+      // Filtrar basura: Si el comprobante es solo números con puntos/comas (ej: 0.00) no es un ID válido para cruce
+      if (/^[\d,.]+$/.test(comprobante) && comprobante.length < 8) continue;
+
+      const haber = tokens[tokens.length - 1]; // HABER es el último bloque
+      const debe = tokens[tokens.length - 2];  // DEBE es el penúltimo
+      
+      rows.push({
+        'FECHA': cleanDate(fecha),
+        'COMPROBANTE/TIPO DCTO': comprobante,
+        'TERCERO/DETALLE': tokens.slice(2, tokens.length - 2).join(' '),
+        'DEBE': cleanMoneyTns(debe),
+        'HABER': cleanMoneyTns(haber),
+      });
+    }
+  }
+  
+  return { rows, columns, isPdf: true };
+}
+
+// ─── Parser: TNS Cartera por Cuotas ──────────────────────────────────────────
+// Columnas: DOCUMENTO | DETALLE | CONCEPTO | FECHA EMISION | FECHA VCTO | VALOR | SALDO | MORA | TOTAL
+function parsePdfTns(lines: string[]): ParsedFile {
+  const columns = ['DOCUMENTO', 'DETALLE', 'CONCEPTO', 'FECHA EMISION', 'FECHA VENCIMIENTO', 'DIAS VCTO', 'VALOR', 'SALDO', 'MORA', 'TOTAL'];
+  const rows: Record<string, string>[] = [];
+  
+  const DATE_RE = /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/g;
+  const MONEY_RE = /[\d\.,]+/g;
+  
+  let currentDoc = '';
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // Detectar línea de datos: Tiene al menos 2 fechas y varios números
+    const dates = line.match(DATE_RE);
+    if (dates && dates.length >= 2) {
+      // Es una línea de valores (ej: "ETAPA 01/01/2025 30/12/2025 95 100,000.00 ...")
+      // Buscamos hacia atrás para obtener el documento y detalle si no están en esta línea
+      
+      const doc = lines[i - 3]?.trim() || currentDoc;
+      const detalle = lines[i - 2]?.trim() || '';
+      const conceptoPrefix = lines[i - 1]?.trim() || '';
+      
+      const lineWithoutDates = line.replace(DATE_RE, '');
+      const diasMatch = lineWithoutDates.match(/-?\d+/);
+      const diasVcto = diasMatch ? diasMatch[0] : '';
+      const monetarios = lineWithoutDates.match(/[\d]{1,3}(?:,[\d]{3})*(?:\.[\d]{2})/g) || [];
+      
+      if (monetarios.length >= 4) {
+        const [valor, saldo, mora, total] = monetarios.slice(-4);
+        
+        rows.push({
+          'DOCUMENTO': doc,
+          'NUMERO': doc, // Alias para compatibilidad con letras
+          'DETALLE': detalle,
+          'CONCEPTO': `${conceptoPrefix} ${line.split(dates[0])[0].trim()}`.trim(),
+          'FECHA EMISION': dates[0],
+          'FECHA VENCIMIENTO': dates[1],
+          'DIAS VCTO': diasVcto,
+          'VALOR': cleanMoneyTns(valor),
+          'SALDO': cleanMoneyTns(saldo),
+          'MORA': cleanMoneyTns(mora),
+          'TOTAL': cleanMoneyTns(total),
+        });
+        
+        if (doc) currentDoc = doc;
+      }
+    }
+  }
+  
+  return { rows, columns, isPdf: true };
 }
 
 // ─── Parser: Histórico de Pagos ───────────────────────────────────────────────
@@ -34,7 +131,6 @@ function parseHistoricoPagos(lines: string[]): ParsedFile {
     }
     if (normLine.startsWith('TOTAL') || normLine.startsWith('TENGA EN CUENTA')) break;
 
-    // Split por 2+ espacios o tabs (como el PDF extrae la tabla)
     const tokens = raw.split(/\s{2,}|\t/).map(t => t.trim()).filter(Boolean);
     if (tokens.length >= 4) {
       const [fecha, fechaPago, recibo, valor] = tokens;
@@ -49,7 +145,6 @@ function parseHistoricoPagos(lines: string[]): ParsedFile {
       }
     }
 
-    // Fallback: dividir por espacio simple, buscar número de recibo + valor
     const parts = raw.trim().split(/\s+/);
     if (parts.length >= 4 && DATE_RE.test(parts[0])) {
       for (let i = 1; i < parts.length - 1; i++) {
@@ -65,7 +160,7 @@ function parseHistoricoPagos(lines: string[]): ParsedFile {
       }
     }
   }
-  return { rows, columns };
+  return { rows, columns, isPdf: true };
 }
 
 // ─── Parser: Pagos Pendientes ─────────────────────────────────────────────────
@@ -109,7 +204,6 @@ function parsePagosPendientes(lines: string[]): ParsedFile {
       }
     }
 
-    // Fallback
     const parts = raw.trim().split(/\s+/);
     if (parts.length >= 4 && DATE_RE.test(parts[0])) {
       const numIdx = parts.findIndex(p => /^[A-Z]{2,}/i.test(p) && p.length >= 3);
@@ -125,7 +219,7 @@ function parsePagosPendientes(lines: string[]): ParsedFile {
       }
     }
   }
-  return { rows, columns };
+  return { rows, columns, isPdf: true };
 }
 
 // ─── parsePdfText: función pura exportada (testeable sin mocks) ───────────────
@@ -144,14 +238,19 @@ export function parsePdfText(text: string, filename: string): ParsedFile {
   const lines = text.split(/\r?\n/);
   const hasHistorico = normText.includes('HISTORICO DE PAGOS') || normText.includes('HISTORICO PAGOS');
   const hasPendientes = normText.includes('PAGOS PENDIENTES');
+  const hasTns = normText.includes('CARTERA POR CUOTAS');
+  const hasLibro = normText.includes('LIBRO AUXILIAR');
 
-  if (!hasHistorico && !hasPendientes) {
+  if (!hasHistorico && !hasPendientes && !hasTns && !hasLibro) {
     throw new AppError(
       'ERR_FILE_CORRUPT',
-      `El PDF "${filename}" no contiene tablas reconocidas del Gestor. ` +
-      `Se esperaba "Histórico de Pagos" o "Pagos Pendientes".`
+      `El PDF "${filename}" no contiene tablas reconocidas del Gestor o TNS. ` +
+      `Se esperaba "Histórico de Pagos", "Pagos Pendientes", "Cartera por Cuotas" o "Libro Auxiliar".`
     );
   }
+
+  if (hasLibro) return parsePdfLibroAuxiliar(lines);
+  if (hasTns) return parsePdfTns(lines);
 
   if (hasHistorico && hasPendientes) {
     const historico = parseHistoricoPagos(lines);

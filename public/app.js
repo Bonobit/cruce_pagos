@@ -536,12 +536,24 @@ function sortRows(rows, key, asc) {
         let va = a[key] ?? '';
         let vb = b[key] ?? '';
         // Ordenar valor numérico correctamente
-        if (key === 'valor') {
+        if (key === 'valor' || key === 'mora') {
             va = parseFloat(String(va).replace(/[^0-9.-]/g, '')) || 0;
             vb = parseFloat(String(vb).replace(/[^0-9.-]/g, '')) || 0;
+        } else if (key === 'fechaVto' || key === 'fechaCance') {
+            const parseDate = (s) => {
+                if (!s) return 0;
+                const parts = String(s).split('/');
+                if (parts.length === 3) {
+                    return new Date(parts[2], parts[1] - 1, parts[0]).getTime();
+                }
+                const d = new Date(s);
+                return isNaN(d.getTime()) ? 0 : d.getTime();
+            };
+            va = parseDate(va);
+            vb = parseDate(vb);
         } else {
-            va = String(va);
-            vb = String(vb);
+            va = String(va).toLowerCase();
+            vb = String(vb).toLowerCase();
         }
         const cmp = va < vb ? -1 : va > vb ? 1 : 0;
         return asc ? cmp : -cmp;

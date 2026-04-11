@@ -13,6 +13,7 @@ export interface ReconciliationResult {
 
 interface GestorEntry {
   key: string;
+  displayKey: string;
   fechaCance: string;
   fechaVto: string;
   tipo: string;
@@ -23,6 +24,7 @@ interface GestorEntry {
 
 interface TnsEntry {
   key: string;
+  displayKey: string;
   fechaCance: string;
   fechaVto: string;
   tipo: string;
@@ -39,6 +41,38 @@ type ModuleAliases = {
   mora?: string[];
   estadoPago?: string[];
 };
+
+// ─── Key Normalization ───────────────────────────────────────────────────────
+
+/**
+ * Normaliza una clave de registro para que el cruce sea robusto ante errores de OCR
+ * y diferencias de formato (prefijos/sufijos).
+ */
+function normalizeKey(key: string): string {
+  if (!key) return '';
+  return key.trim().toUpperCase();
+}
+
+/**
+ * Normalización agresiva solo para fallback ante errores de lectura.
+ */
+function robustNormalize(val: string): string {
+  if (!val) return '';
+  return val
+    .toUpperCase()
+    .replace(/L/g, 'I')
+    .replace(/O/g, '0')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Normaliza el estado de pago. Si no es 'En espera', se asume 'Pagado'.
+ */
+function normalizeEstadoPago(val: string): string {
+  const n = normalize(val);
+  if (n.includes('ESPERA')) return 'En espera de pago';
+  return 'Pagado';
+}
 
 // ─── Column detection ────────────────────────────────────────────────────────
 
@@ -97,23 +131,33 @@ function buildGestorEntries(
   const normalizedColName = normalize(registroCol);
 
   for (const row of parsed.rows) {
-    const reg = normalize(row[registroCol]);
-    if (!reg) continue;
-    if (reg === normalizedColName) continue;
-    if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
+    const rawValue = row[registroCol]?.toString() || '';
+    if (!rawValue) continue;
+    if (normalize(rawValue) === normalizedColName) continue;
+    
+    const key = normalizeKey(rawValue);
+    if (!key) continue;
 
     const rawCance = fechaCanceCol ? row[fechaCanceCol] : '';
     const rawVto = fechaVtoCol ? row[fechaVtoCol] : '';
 
-    // Si solo hay una fecha disponible, usarla para ambas
     const finalCance = formatDate(rawCance || rawVto || '');
     const finalVto = formatDate(rawVto || rawCance || '');
 
     const valor = valorCol ? (row[valorCol] || '') : '';
     const mora = moraCol ? (row[moraCol] || '') : '';
-    const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
+    const estadoPago = estadoPagoCol ? normalizeEstadoPago(row[estadoPagoCol] || '') : 'Pagado';
 
-    entries.push({ key: reg, fechaCance: finalCance, fechaVto: finalVto, tipo: tipoDefault, valor, mora, estadoPago });
+    entries.push({ 
+      key, 
+      displayKey: rawValue, 
+      fechaCance: finalCance, 
+      fechaVto: finalVto, 
+      tipo: tipoDefault, 
+      valor, 
+      mora, 
+      estadoPago 
+    });
   }
 
   return entries;
@@ -136,10 +180,12 @@ function buildTnsEntries(
   const normalizedColName = normalize(registroCol);
 
   for (const row of rows) {
-    const reg = normalize(row[registroCol]);
-    if (!reg) continue;
-    if (reg === normalizedColName) continue;
-    if (/^\d{1,4}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(reg)) continue;
+    const rawValue = row[registroCol]?.toString() || '';
+    if (!rawValue) continue;
+    if (normalize(rawValue) === normalizedColName) continue;
+    
+    const key = normalizeKey(rawValue);
+    if (!key) continue;
 
     const rawCance = fechaCanceCol ? row[fechaCanceCol] : '';
     const rawVto = fechaVtoCol ? row[fechaVtoCol] : '';
@@ -149,9 +195,18 @@ function buildTnsEntries(
 
     const valor = valorCol ? (row[valorCol] || '') : '';
     const mora = moraCol ? (row[moraCol] || '') : '';
-    const estadoPago = estadoPagoCol ? normalize(row[estadoPagoCol] || '') : '';
+    const estadoPago = estadoPagoCol ? normalizeEstadoPago(row[estadoPagoCol] || '') : 'Pagado';
 
-    entries.push({ key: reg, fechaCance: finalCance, fechaVto: finalVto, tipo: tipoDefault, valor, mora, estadoPago });
+    entries.push({ 
+      key, 
+      displayKey: rawValue, 
+      fechaCance: finalCance, 
+      fechaVto: finalVto, 
+      tipo: tipoDefault, 
+      valor, 
+      mora, 
+      estadoPago 
+    });
   }
 
   return entries;
@@ -177,9 +232,32 @@ function buildMatchedRows(
   for (const tnsEntry of tnsEntries) {
     let matchedGestorIdx = -1;
     for (let i = 0; i < gestorEntries.length; i++) {
-      if (!matchedGestorIndices.has(i) && tnsEntry.key.includes(gestorEntries[i].key)) {
+      if (matchedGestorIndices.has(i)) continue;
+      
+      const gKey = gestorEntries[i].key;
+      const tKey = tnsEntry.key;
+
+      // 1. Coincidencia directa o contención (normalizada simple)
+      let isMatch = tKey.includes(gKey) || gKey.includes(tKey);
+
+      // 2. Fallback: Normalización robusta (OCR fallback)
+      if (!isMatch) {
+        const tRobust = robustNormalize(tnsEntry.displayKey);
+        const gRobust = robustNormalize(gestorEntries[i].displayKey);
+        isMatch = tRobust.includes(gRobust) || gRobust.includes(tRobust);
+      }
+
+      // 3. Fallback adicional para letras: intentar ignorar sufijos numéricos del Gestor
+      if (!isMatch && modulo === 'letras') {
+        const gestorBase = gKey.replace(/\d+$/, '');
+        if (gestorBase.length >= 4) {
+          isMatch = tKey.includes(gestorBase) || gestorBase.includes(tKey);
+        }
+      }
+
+      if (isMatch) {
         matchedGestorIdx = i;
-        break; // Match 1-to-1
+        break;
       }
     }
 
@@ -188,7 +266,7 @@ function buildMatchedRows(
       const ge = gestorEntries[matchedGestorIdx];
       const estadoPago = ge.estadoPago || tnsEntry.estadoPago;
       rows.push({
-        registro: tnsEntry.key,
+        registro: ge.displayKey, // Usar la clave original del GESTOR
         tipo: ge.tipo,
         fechaCance: ge.fechaCance || tnsEntry.fechaCance || '',
         fechaVto: ge.fechaVto || tnsEntry.fechaVto || '',
@@ -202,7 +280,7 @@ function buildMatchedRows(
       });
     } else {
       rows.push({
-        registro: tnsEntry.key,
+        registro: tnsEntry.displayKey,
         tipo: tnsEntry.tipo,
         fechaCance: tnsEntry.fechaCance || '',
         fechaVto: tnsEntry.fechaVto,
@@ -222,7 +300,7 @@ function buildMatchedRows(
     if (!matchedGestorIndices.has(i)) {
       const ge = gestorEntries[i];
       rows.push({
-        registro: ge.key,
+        registro: ge.displayKey,
         tipo: ge.tipo,
         fechaCance: ge.fechaCance || '',
         fechaVto: ge.fechaVto,
@@ -282,7 +360,7 @@ export function reconcile(
     if (!tnsRegistroCol) tnsRegistroCol = d.registroCol;
     if (!tnsFechaVtoCol) tnsFechaVtoCol = d.fechaVtoCol;
 
-    const filteredRows = filterTnsRows(tnsFile.rows, modulo);
+    const filteredRows = tnsFile.isPdf ? tnsFile.rows : filterTnsRows(tnsFile.rows, modulo);
     const fileEntries = buildTnsEntries(
       filteredRows,
       d.registroCol,

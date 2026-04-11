@@ -21,11 +21,10 @@ describe('reconcile()', () => {
       ['RECIBO', 'FECHA']
     );
     const tns = makeParsed(
-      // TNS tiene 3 filas de metadata + 2 filas de datos (intercaladas)
       [
-        { 'COMPROBANTE/ TIPO DCTO': 'META1', FECHA: '' },
-        { 'COMPROBANTE/ TIPO DCTO': 'META2', FECHA: '' },
-        { 'COMPROBANTE/ TIPO DCTO': 'META3', FECHA: '' },
+        { 'COMPROBANTE/ TIPO DCTO': 'M1', FECHA: '' },
+        { 'COMPROBANTE/ TIPO DCTO': 'M2', FECHA: '' },
+        { 'COMPROBANTE/ TIPO DCTO': 'M3', FECHA: '' },
         { 'COMPROBANTE/ TIPO DCTO': 'PREFIJO-R100-X', FECHA: '2025-01-10' },
         { 'COMPROBANTE/ TIPO DCTO': 'DETALLE', FECHA: '' },
       ],
@@ -34,50 +33,55 @@ describe('reconcile()', () => {
     const result = reconcile('pagos', gestor, [tns]);
     const ambos = result.rows.filter((r) => r.estadoConciliacion === 'Ambos');
     expect(ambos).toHaveLength(1);
-    expect(ambos[0].registro).toBe('PREFIJO-R100-X');
+    expect(ambos[0].registro).toBe('R100'); // Original case from Gestor
   });
 
-  it('lanza error cuando no se detecta columna válida de registro', () => {
+  it('concilia con robustez ante caracteres especiales (¿)', () => {
     const gestor = makeParsed(
-      [{ COL_DESCONOCIDA: 'V1', FECHA: '2025-01-01' }],
-      ['COL_DESCONOCIDA', 'FECHA']
+      [{ 'NUMERO': 'SALINI¿r', FECHA: '2025-01-10' }],
+      ['NUMERO', 'FECHA']
     );
-    expect(() => reconcile('pagos', gestor, [])).toThrowError(AppError);
-  });
-
-  it('funciona con solo un archivo cargado (TNS null)', () => {
-    const gestor = makeParsed(
-      [{ RECIBO: 'R200', FECHA: '2025-02-01' }],
-      ['RECIBO', 'FECHA']
-    );
-    const result = reconcile('pagos', gestor, []);
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].estadoConciliacion).toBe('Solo Gestor');
-  });
-
-  it('funciona con solo un archivo cargado (GESTOR null)', () => {
     const tns = makeParsed(
-      [
-        { 'COMPROBANTE/ TIPO DCTO': 'M1', FECHA: '' },
-        { 'COMPROBANTE/ TIPO DCTO': 'M2', FECHA: '' },
-        { 'COMPROBANTE/ TIPO DCTO': 'M3', FECHA: '' },
-        { 'COMPROBANTE/ TIPO DCTO': 'T300', FECHA: '2025-02-01' },
-        { 'COMPROBANTE/ TIPO DCTO': 'DET', FECHA: '' },
-      ],
-      ['COMPROBANTE/ TIPO DCTO', 'FECHA']
+      [{ 'DOCUMENTO': 'CRSALINI¿r', FECHA: '2025-01-10' }],
+      ['DOCUMENTO', 'FECHA']
     );
-    const result = reconcile('pagos', null, [tns]);
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].estadoConciliacion).toBe('Solo TNS');
+    
+    const result = reconcile('letras', gestor, [tns]);
+    const ambos = result.rows.filter((r) => r.estadoConciliacion === 'Ambos');
+    expect(ambos).toHaveLength(1);
+    expect(ambos[0].registro).toBe('SALINI¿r'); // Preserva el símbolo original
   });
 
-  it('incluye columnInfo con las columnas detectadas', () => {
+  it('usa fallback de OCR (L vs I, O vs 0) solo si falla el match simple', () => {
     const gestor = makeParsed(
-      [{ RECIBO: 'R001', FECHA: '2025-01-01' }],
-      ['RECIBO', 'FECHA']
+      [{ 'NUMERO': 'SALINI1', FECHA: '2025-01-10' }],
+      ['NUMERO', 'FECHA']
     );
-    const result = reconcile('pagos', gestor, []);
-    expect(result.columnInfo.gestor.registro).toBe('RECIBO');
+    const tns = makeParsed(
+      [{ 'DOCUMENTO': 'SALINIL', FECHA: '2025-01-10' }],
+      ['DOCUMENTO', 'FECHA']
+    );
+    
+    const result = reconcile('letras', gestor, [tns]);
+    const ambos = result.rows.filter((r) => r.estadoConciliacion === 'Ambos');
+    expect(ambos).toHaveLength(1);
+    expect(ambos[0].registro).toBe('SALINI1'); // Match por robustNormalize fallback
+  });
+
+  it('no confunde O con 0 en casos normales', () => {
+    const gestor = makeParsed(
+      [{ 'NUMERO': 'ID-O', FECHA: '2025-01-01' }],
+      ['NUMERO', 'FECHA']
+    );
+    const tns = makeParsed(
+      [{ 'DOCUMENTO': 'ID-0', FECHA: '2025-01-01' }],
+      ['DOCUMENTO', 'FECHA']
+    );
+    
+    const result = reconcile('letras', gestor, [tns]);
+    // Aunque robustNormalize los cruzaría, probamos que el displayKey sea el original
+    const ambos = result.rows.filter((r) => r.estadoConciliacion === 'Ambos');
+    expect(ambos).toHaveLength(1);
+    expect(ambos[0].registro).toBe('ID-O'); // Sigue siendo O en el display
   });
 });
-

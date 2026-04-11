@@ -6,7 +6,8 @@
   "bin": "dist/server.js",
   "pkg": {
     "assets": [
-      "public/**/*"
+      "public/**/*",
+      "node_modules/pdf-parse/**/*"
     ]
   },
   "scripts": {

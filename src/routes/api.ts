@@ -98,7 +98,7 @@ router.post('/upload/gestor', uploadMiddleware, async (req: Request, res: Respon
 });
 
 // ─── Upload TNS (múltiples archivos — cada llamada agrega al array) ───────────
-router.post('/upload/tns', uploadMiddleware, (req: Request, res: Response) => {
+router.post('/upload/tns', uploadMiddleware, async (req: Request, res: Response) => {
   const modulo = getModulo(req);
   if (!modulo) {
     res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido: pagos | letras' } });
@@ -109,18 +109,22 @@ router.post('/upload/tns', uploadMiddleware, (req: Request, res: Response) => {
     return;
   }
   try {
-    const parsed = parseFile(req.file.buffer, req.file.originalname);
+    const parsed = await parseFileOrPdf(req.file.buffer, req.file.originalname);
 
     // Agregar al array de TNS (permite múltiples archivos)
     getStore(modulo).tns.push(parsed);
 
     const rawCount = parsed.rows.length;
     let effectiveCount = rawCount;
-    if (modulo === 'letras') {
-      effectiveCount = Math.max(0, rawCount - 1);
-    } else if (modulo === 'pagos') {
-      const afterSkip = Math.max(0, rawCount - 3);
-      effectiveCount = Math.floor(afterSkip / 2);
+    
+    // Solo aplicar recortes para Excel (los PDF ya vienen limpios)
+    if (!parsed.isPdf) {
+      if (modulo === 'letras') {
+        effectiveCount = Math.max(0, rawCount - 1);
+      } else if (modulo === 'pagos') {
+        const afterSkip = Math.max(0, rawCount - 3);
+        effectiveCount = Math.floor(afterSkip / 2);
+      }
     }
 
     const totalTnsFiles = getStore(modulo).tns.length;

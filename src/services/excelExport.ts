@@ -142,20 +142,54 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
 
     // Fila de resumen al final
     ws.addRow([]);
+    ws.addRow(['RESUMEN DE REGISTROS']).getCell(1).font = { bold: true, name: 'Arial', size: 11, color: { argb: 'FF1F4E79' } };
+
     const total = rows.length;
     const ambos = rows.filter((r) => r.estadoConciliacion === 'Ambos').length;
     const soloG = rows.filter((r) => r.estadoConciliacion === 'Solo Gestor').length;
     const soloT = rows.filter((r) => r.estadoConciliacion === 'Solo TNS').length;
 
-    [
-      ['Total registros', total],
-      ['Ambos (conciliados)', ambos],
-      ['Solo Gestor', soloG],
-      ['Solo TNS', soloT],
-    ].forEach(([label, value]) => {
+    const parseVal = (v: string | undefined) => v ? parseFloat(v.replace(/[^0-9.-]/g, '')) || 0 : 0;
+
+    const sumAmbos = rows.filter(r => r.estadoConciliacion === 'Ambos').reduce((s, r) => s + parseVal(r.valor), 0);
+    const sumSoloG = rows.filter(r => r.estadoConciliacion === 'Solo Gestor').reduce((s, r) => s + parseVal(r.valor), 0);
+    const sumSoloT = rows.filter(r => r.estadoConciliacion === 'Solo TNS').reduce((s, r) => s + parseVal(r.valor), 0);
+
+    const dataResumen = [
+      ['Total registros (Conteo)', total],
+      ['Ambos - Conciliados (Conteo)', ambos],
+      ['Solo Gestor (Conteo)', soloG],
+      ['Solo TNS (Conteo)', soloT],
+      [''],
+      ['TOTALES MONETARIOS', 'VALOR'],
+      ['Total Ambos ($)', sumAmbos],
+      ['Total Solo Gestor ($)', sumSoloG],
+      ['Total Solo TNS ($)', sumSoloT],
+    ];
+
+    const hasLetras = rows.some(r => r.modulo === 'letras');
+    if (hasLetras) {
+      const sumPagados = rows.filter(r => r.modulo === 'letras' && normalizeEstadoPago(r.estadoPago) === 'Pagado').reduce((s, r) => s + parseVal(r.valor), 0);
+      const sumEspera = rows.filter(r => r.modulo === 'letras' && normalizeEstadoPago(r.estadoPago) === 'En espera de pago').reduce((s, r) => s + parseVal(r.valor), 0);
+      
+      dataResumen.push(['']);
+      dataResumen.push(['RESUMEN LETRAS (ESTADO PAGO)', 'VALOR']);
+      dataResumen.push(['Total Pagados ($)', sumPagados]);
+      dataResumen.push(['Total En Espera ($)', sumEspera]);
+    }
+
+    dataResumen.forEach(([label, value]) => {
       const row = ws.addRow([label, value]);
-      row.getCell(1).font = { bold: true, name: 'Arial', size: 10 };
-      row.getCell(2).font = { name: 'Arial', size: 10 };
+      const cell1 = row.getCell(1);
+      const cell2 = row.getCell(2);
+      
+      cell1.font = { bold: label.toString().includes('RESUMEN') || label.toString().includes('TOTAL'), name: 'Arial', size: 10 };
+      cell2.font = { name: 'Arial', size: 10, bold: typeof value === 'number' };
+
+      if (typeof value === 'number' && label.toString().includes('($)')) {
+        cell2.numFmt = '"$"#,##0';
+        cell2.alignment = { horizontal: 'right' };
+      }
     });
 
     ws.views = [{ state: 'frozen', ySplit: 1 }];

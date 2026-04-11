@@ -129,12 +129,24 @@ export function findColumn(columns: string[], aliases: string[]): string | null 
  */
 export function formatDate(val: string): string {
   if (!val || val.trim() === '') return '';
-  // Already formatted as YYYY-MM-DD from xlsx
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return val;
-  return d.toLocaleDateString('es-CO', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
+  
+  const v = val.trim();
+  // if it's already DD/MM/YYYY (approx)
+  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(v)) {
+    const parts = v.split(/[\/\-]/);
+    const d = parts[0].padStart(2, '0');
+    const m = parts[1].padStart(2, '0');
+    let y = parts[2];
+    if (y.length === 2) y = '20' + y;
+    return `${d}/${m}/${y}`;
+  }
+
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return v;
+  
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  
+  return `${day}/${month}/${year}`;
 }

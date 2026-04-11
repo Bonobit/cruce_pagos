@@ -17,6 +17,7 @@ export interface RegistroRow {
 export interface ParsedFile {
   rows: Record<string, string>[];
   columns: string[];
+  isPdf?: boolean;
 }
 
 export interface StoreEntry {
