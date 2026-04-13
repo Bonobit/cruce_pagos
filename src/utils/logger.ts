@@ -3,7 +3,7 @@ import path from 'path';
 
 // Determinar la ruta del log (junto al ejecutable si estamos en SEA/Pkg)
 const isBundled = typeof (process as any).pkg !== 'undefined' || 
-                 (process.getBuiltinModule && (process as any).getBuiltinModule('node:sea')?.isSea());
+                 (typeof (process as any).getBuiltinModule === 'function' && (process as any).getBuiltinModule('node:sea')?.isSea());
 
 const logDir = isBundled 
   ? path.dirname(process.execPath) 
