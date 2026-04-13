@@ -151,29 +151,38 @@ export async function generateExcel(rows: RegistroRow[], type: 'cruce' | 'pagos'
 
     const parseVal = (v: string | undefined) => v ? parseFloat(v.replace(/[^0-9.-]/g, '')) || 0 : 0;
 
-    const sumAmbos = rows.filter(r => r.estadoConciliacion === 'Ambos').reduce((s, r) => s + parseVal(r.valor), 0);
-    const sumSoloG = rows.filter(r => r.estadoConciliacion === 'Solo Gestor').reduce((s, r) => s + parseVal(r.valor), 0);
-    const sumSoloT = rows.filter(r => r.estadoConciliacion === 'Solo TNS').reduce((s, r) => s + parseVal(r.valor), 0);
+    const hasLetras = rows.some(r => r.modulo === 'letras');
+    const hasPagos = rows.some(r => r.modulo === 'pagos');
 
-    const dataResumen = [
+    const dataResumen: (string | number)[][] = [
       ['Total registros (Conteo)', total],
       ['Ambos - Conciliados (Conteo)', ambos],
       ['Solo Gestor (Conteo)', soloG],
       ['Solo TNS (Conteo)', soloT],
-      [''],
-      ['TOTALES MONETARIOS', 'VALOR'],
-      ['Total Ambos ($)', sumAmbos],
-      ['Total Solo Gestor ($)', sumSoloG],
-      ['Total Solo TNS ($)', sumSoloT],
     ];
 
-    const hasLetras = rows.some(r => r.modulo === 'letras');
-    if (hasLetras) {
-      const sumPagados = rows.filter(r => r.modulo === 'letras' && normalizeEstadoPago(r.estadoPago) === 'Pagado').reduce((s, r) => s + parseVal(r.valor), 0);
-      const sumEspera = rows.filter(r => r.modulo === 'letras' && normalizeEstadoPago(r.estadoPago) === 'En espera de pago').reduce((s, r) => s + parseVal(r.valor), 0);
-      
+    // Totales pagos: solo si hay filas de módulo pagos
+    if (hasPagos) {
+      const pagosRows = rows.filter(r => r.modulo === 'pagos');
+      const sumAmbos = pagosRows.filter(r => r.estadoConciliacion === 'Ambos').reduce((s, r) => s + parseVal(r.valor), 0);
+      const sumSoloG = pagosRows.filter(r => r.estadoConciliacion === 'Solo Gestor').reduce((s, r) => s + parseVal(r.valor), 0);
+      const sumSoloT = pagosRows.filter(r => r.estadoConciliacion === 'Solo TNS').reduce((s, r) => s + parseVal(r.valor), 0);
+
       dataResumen.push(['']);
-      dataResumen.push(['RESUMEN LETRAS (ESTADO PAGO)', 'VALOR']);
+      dataResumen.push(['TOTALES PAGOS', 'VALOR']);
+      dataResumen.push(['Total Ambos ($)', sumAmbos]);
+      dataResumen.push(['Total Solo Gestor ($)', sumSoloG]);
+      dataResumen.push(['Total Solo TNS ($)', sumSoloT]);
+    }
+
+    // Totales letras: solo si hay filas de módulo letras
+    if (hasLetras) {
+      const letrasRows = rows.filter(r => r.modulo === 'letras');
+      const sumPagados = letrasRows.filter(r => normalizeEstadoPago(r.estadoPago) === 'Pagado').reduce((s, r) => s + parseVal(r.valor), 0);
+      const sumEspera = letrasRows.filter(r => normalizeEstadoPago(r.estadoPago) === 'En espera de pago').reduce((s, r) => s + parseVal(r.valor), 0);
+
+      dataResumen.push(['']);
+      dataResumen.push(['TOTALES LETRAS', 'VALOR']);
       dataResumen.push(['Total Pagados ($)', sumPagados]);
       dataResumen.push(['Total En Espera ($)', sumEspera]);
     }
