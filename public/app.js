@@ -109,20 +109,23 @@ async function removeTnsFile(index) {
     const s = moduleState[currentModulo];
     s.tnsFiles.splice(index, 1);
     renderTnsList();
-    // Resetear TNS en servidor y re-subir los que quedan
-    await fetch(`/api/reset?modulo=${currentModulo}`, { method: 'DELETE' });
-    // También limpiar el gestor del estado servidor — se mantiene en moduleState
-    // Re-upload gestor si existe (no podemos re-enviar el buffer, así que indicamos al usuario)
-    if (s.tnsFiles.length === 0) {
-        moduleState[currentModulo].panelTnsLoaded = false;
-        saveState();
-        toast('Archivo TNS eliminado. Recarga el módulo si necesitas recalcular.', '');
-    } else {
-        toast(`Archivo eliminado. Quedan ${s.tnsFiles.length} archivo(s) TNS — recarga el cruce.`, '');
+    
+    try {
+        const res = await fetch(`/api/upload/tns/${index}?modulo=${currentModulo}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Error en servidor al eliminar');
+        
+        if (s.tnsFiles.length === 0) {
+            moduleState[currentModulo].panelTnsLoaded = false;
+        }
+        toast('Archivo TNS eliminado.', 'success');
+    } catch (err) {
+        toast(`Error: ${err.message}. El cruce puede ser inconsistente.`, 'error');
     }
-    // El servidor fue reseteado, necesitamos indicar al usuario que regenere
+
+    // Deshabilitar botones de Excel ya que la data actual ya no es válida
     document.querySelectorAll('.btn-excel').forEach(b => b.disabled = true);
     moduleState[currentModulo].btnExcelDisabled = true;
+    saveState();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

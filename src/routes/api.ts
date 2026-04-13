@@ -349,4 +349,32 @@ router.delete('/reset', (req: Request, res: Response) => {
   res.json({ ok: true, message: `Módulo ${modulo} limpiado.` });
 });
 
+// ─── Delete specific files ──────────────────────────────────────────────────
+router.delete('/upload/gestor', (req: Request, res: Response) => {
+  const modulo = getModulo(req);
+  if (!modulo) {
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido' } });
+    return;
+  }
+  store[modulo].gestor = null;
+  logger.info({ modulo }, 'Gestor eliminado');
+  res.json({ ok: true });
+});
+
+router.delete('/upload/tns/:index', (req: Request, res: Response) => {
+  const modulo = getModulo(req);
+  const index = parseInt(req.params.index);
+  if (!modulo) {
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Parámetro modulo requerido' } });
+    return;
+  }
+  if (isNaN(index) || index < 0 || index >= store[modulo].tns.length) {
+    res.status(400).json({ error: { code: 'INTERNAL_ERROR', message: 'Índice de archivo inválido' } });
+    return;
+  }
+  store[modulo].tns.splice(index, 1);
+  logger.info({ modulo, index }, 'Archivo TNS eliminado');
+  res.json({ ok: true, totalRemaining: store[modulo].tns.length });
+});
+
 export default router;
