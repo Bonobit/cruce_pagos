@@ -212,12 +212,58 @@ function buildTnsEntries(
   return entries;
 }
 
+// ─── Value comparison ────────────────────────────────────────────────────────
+
+/**
+ * Normaliza un valor monetario a número para comparación.
+ * Soporta formatos: "1.234,56", "1,234.56", "1234.56", "1234,56"
+ */
+function normalizeValor(val: string): number | null {
+  if (!val || !val.trim()) return null;
+  // Eliminar símbolos de moneda, espacios y asteriscos
+  let s = val.replace(/[$ \t*]/g, '');
+  if (!s) return null;
+
+  // Detectar si usa punto como separador de miles y coma como decimal, o viceversa
+  const hasComma = s.includes(',');
+  const hasDot = s.includes('.');
+
+  if (hasComma && hasDot) {
+    // Formato: "1.234,56" → eliminar punto, cambiar coma a punto
+    if (s.indexOf('.') < s.indexOf(',')) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Formato: "1,234.56" → eliminar coma
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasComma && !hasDot) {
+    // "1234,56" → decimal con coma
+    s = s.replace(',', '.');
+  }
+  // Si solo tiene punto, ya está en formato correcto
+
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+/**
+ * Compara dos valores monetarios. Retorna true si son iguales (±0.01 de tolerancia).
+ * Si alguno de los valores está vacío, no se puede comparar → retorna null.
+ */
+function valoresIguales(v1: string, v2: string): boolean | null {
+  const n1 = normalizeValor(v1);
+  const n2 = normalizeValor(v2);
+  if (n1 === null || n2 === null) return null; // no se puede comparar
+  return Math.abs(n1 - n2) <= 0.01;
+}
+
 // ─── Matching ────────────────────────────────────────────────────────────────
 
 /**
  * Matches gestor entries to TNS entries via substring containment.
  * Duplicates in GESTOR (same key) are all shown — each gets its own result row.
  * If one TNS entry matches N gestor duplicates, it produces N rows all marked "Ambos".
+ * Cuando ambas entradas tienen valor, se valida que sean iguales para confirmar el match.
  */
 function buildMatchedRows(
   gestorEntries: GestorEntry[],
@@ -253,6 +299,16 @@ function buildMatchedRows(
         if (gestorBase.length >= 4) {
           isMatch = tKey.includes(gestorBase) || gestorBase.includes(tKey);
         }
+      }
+
+      // 4. Si la clave coincide, validar que el valor sea igual (cuando ambos tienen valor)
+      if (isMatch) {
+        const valorCheck = valoresIguales(gestorEntries[i].valor, tnsEntry.valor);
+        if (valorCheck === false) {
+          // Claves iguales pero valores distintos → no es match
+          isMatch = false;
+        }
+        // Si valorCheck === null (alguno no tiene valor), se acepta el match por clave
       }
 
       if (isMatch) {
