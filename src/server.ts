@@ -19,10 +19,10 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 // Setup static paths carefully for pkg and SEA
+// @ts-ignore
+const nodeSea = (process as any).getBuiltinModule ? (process as any).getBuiltinModule('node:sea') : null;
 const isPkg = typeof (process as any).pkg !== 'undefined';
-const isSea = !isPkg && typeof process.execPath === 'string' && 
-  (process.execPath.toLowerCase().endsWith('cruce_pagos.exe') || 
-   process.execPath.toLowerCase().endsWith('reconciliation-app.exe'));
+const isSea = !isPkg && !!(nodeSea && nodeSea.isSea());
 
 let publicPath = path.join(__dirname, '..', 'public');
 

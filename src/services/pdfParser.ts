@@ -8,11 +8,10 @@ import fs from 'fs';
 import { TEMP_DIR } from '../utils/assets';
 
 // Robust detection of SEA or Pkg environment
+// @ts-ignore
+const nodeSea = (process as any).getBuiltinModule ? (process as any).getBuiltinModule('node:sea') : null;
 const isPkg = typeof (process as any).pkg !== 'undefined';
-const isSea = !isPkg && typeof process.execPath === 'string' && 
-  (process.execPath.toLowerCase().endsWith('cruce_pagos.exe') || 
-   process.execPath.toLowerCase().endsWith('reconciliation-app.exe') ||
-   process.execPath.toLowerCase().endsWith('node.exe') === false);
+const isSea = !isPkg && !!(nodeSea && nodeSea.isSea());
 
 if (isPkg || isSea) {
   const workerPath = path.join(TEMP_DIR, 'pdf.worker.mjs');
