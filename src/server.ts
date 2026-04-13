@@ -13,7 +13,7 @@ import cors from 'cors';
 import fs from 'fs';
 import apiRouter from './routes/api';
 import { logger } from './utils/logger';
-import { exec } from 'child_process';
+import { exec, spawn, execSync } from 'child_process';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -23,6 +23,67 @@ const PORT = Number(process.env.PORT) || 3000;
 const nodeSea = (process as any).getBuiltinModule ? (process as any).getBuiltinModule('node:sea') : null;
 const isPkg = typeof (process as any).pkg !== 'undefined';
 const isSea = !isPkg && !!(nodeSea && nodeSea.isSea());
+
+/**
+ * Mata procesos que estén usando el puerto 3000 para evitar conflictos
+ */
+function killPreviousInstance() {
+  try {
+    const stdout = execSync(`netstat -ano | findstr :${PORT}`).toString();
+    const lines = stdout.split('\n');
+    const currentPid = process.pid;
+
+    for (const line of lines) {
+      if (!line.includes('LISTENING')) continue;
+      
+      const parts = line.trim().split(/\s+/);
+      const pid = parseInt(parts[parts.length - 1]);
+      
+      if (pid && pid !== currentPid) {
+        logger.info({ pid }, 'Cerrando instancia previa detectada en el puerto 3000');
+        try {
+          execSync(`taskkill /F /PID ${pid}`);
+        } catch (e) {
+          // Ignorar errores al matar (puede que ya se haya cerrado)
+        }
+      }
+    }
+  } catch (err) {
+    // Si falla es generalmente porque no hay procesos en ese puerto
+  }
+}
+
+/**
+ * Lanza la aplicación en segundo plano si no tiene el flag --background
+ */
+function checkBackground() {
+  if (process.argv.includes('--background')) return;
+
+  if (process.platform === 'win32' && (isSea || isPkg)) {
+    const vbsPath = path.join(TEMP_DIR, 'launcher.vbs');
+    const exePath = `"${process.execPath}"`;
+    const vbsContent = `Set WshShell = CreateObject("WScript.Shell")\nWshShell.Run ${exePath} & " --background", 0, False`;
+    
+    try {
+      fs.writeFileSync(vbsPath, vbsContent);
+      spawn('cscript.exe', ['//Nologo', vbsPath], {
+        detached: true,
+        stdio: 'ignore'
+      }).unref();
+      
+      logger.info('Iniciando en segundo plano, cerrando consola...');
+      process.exit(0);
+    } catch (err) {
+      logger.error('Error al intentar lanzar en segundo plano:', err);
+    }
+  }
+}
+
+// Lógica de arranque (Solo en el ejecutable)
+if (isSea || isPkg) {
+  killPreviousInstance();
+  checkBackground();
+}
 
 let publicPath = path.join(__dirname, '..', 'public');
 
