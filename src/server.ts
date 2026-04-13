@@ -1,6 +1,16 @@
+import './utils/polyfills';
+import { initAssets, TEMP_DIR } from './utils/assets';
+
+// Initialize assets (extract from SEA if needed) as early as possible
+initAssets();
+
+// Add temp dir to module paths so Node can find extracted native modules
+(module as any).paths.push(TEMP_DIR);
+
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
+import fs from 'fs';
 import apiRouter from './routes/api';
 import { logger } from './utils/logger';
 import { exec } from 'child_process';
@@ -8,13 +18,32 @@ import { exec } from 'child_process';
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-// Setup static paths carefully for pkg
+// Setup static paths carefully for pkg and SEA
 const isPkg = typeof (process as any).pkg !== 'undefined';
-const publicPath = isPkg
-  ? path.join(__dirname, '..', 'public') // In pkg snapshot
-  : path.join(__dirname, '..', 'public'); // In dev/dist folders
+const isSea = !isPkg && typeof process.execPath === 'string' && 
+  (process.execPath.toLowerCase().endsWith('cruce_pagos.exe') || 
+   process.execPath.toLowerCase().endsWith('reconciliation-app.exe'));
 
-logger.info({ isPkg, __dirname, publicPath }, 'Iniciando servidor...');
+let publicPath = path.join(__dirname, '..', 'public');
+
+if (isSea) {
+  // En SEA, preferimos la carpeta extraída en %TEMP% para que sea 100% independiente
+  const tempPublic = path.join(TEMP_DIR, 'public');
+  if (fs.existsSync(tempPublic)) {
+    publicPath = tempPublic;
+  }
+} else if (isPkg) {
+  const nextToExe = path.join(path.dirname(process.execPath), 'public');
+  const levelUp = path.join(path.dirname(process.execPath), '..', 'public');
+  
+  if (fs.existsSync(nextToExe)) {
+    publicPath = nextToExe;
+  } else if (fs.existsSync(levelUp)) {
+    publicPath = levelUp;
+  }
+}
+
+logger.info({ isPkg, isSea, __dirname, execPath: process.execPath, publicPath }, 'Iniciando servidor...');
 
 app.use(cors());
 app.use(express.json());

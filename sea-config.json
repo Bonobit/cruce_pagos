@@ -1,0 +1,11 @@
+{
+  "main": "dist/bundle.js",
+  "output": "dist/prep.blob",
+  "disableSentinel": false,
+  "assets": {
+    "pdf.worker.mjs": "node_modules/pdfjs-dist/build/pdf.worker.mjs",
+    "public/index.html": "public/index.html",
+    "public/styles.css": "public/styles.css",
+    "public/app.js": "public/app.js"
+  }
+}

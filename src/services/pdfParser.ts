@@ -2,6 +2,30 @@ import { PDFParse } from 'pdf-parse';
 import { ParsedFile } from '../types';
 import { AppError } from '../utils/errors';
 import { normalize } from './fileParser';
+import { logger } from '../utils/logger';
+import path from 'path';
+import fs from 'fs';
+import { TEMP_DIR } from '../utils/assets';
+
+// Robust detection of SEA or Pkg environment
+const isPkg = typeof (process as any).pkg !== 'undefined';
+const isSea = !isPkg && typeof process.execPath === 'string' && 
+  (process.execPath.toLowerCase().endsWith('cruce_pagos.exe') || 
+   process.execPath.toLowerCase().endsWith('reconciliation-app.exe') ||
+   process.execPath.toLowerCase().endsWith('node.exe') === false);
+
+if (isPkg || isSea) {
+  const workerPath = path.join(TEMP_DIR, 'pdf.worker.mjs');
+  
+  if (fs.existsSync(workerPath)) {
+    const workerUrl = `file://${workerPath.replace(/\\/g, '/')}`;
+    logger.info({ workerUrl }, 'Configurando worker de PDFJS extraído en temporal');
+    // @ts-ignore
+    PDFParse.setWorker(workerUrl);
+  } else {
+    logger.warn({ workerPath }, 'No se encontró el worker de PDFJS en la carpeta temporal.');
+  }
+}
 
 const MONEY_RE = /^\$?[\d.,]+$/;
 
@@ -275,8 +299,8 @@ export async function parsePdfGestor(buffer: Buffer, filename: string): Promise<
     const result = await parser.getText();
     text = result.text;
     require('fs').writeFileSync('debug_pdf.txt', text);
-  } catch (rawErr) {
-    console.error('Error interno parseando PDF:', rawErr);
+  } catch (rawErr: any) {
+    logger.error({ filename, err: rawErr, stack: rawErr?.stack }, 'Error interno parseando PDF');
     throw new AppError(
       'ERR_FILE_CORRUPT',
       `No se pudo leer el PDF "${filename}". Asegúrate de que no está protegido con contraseña.`
